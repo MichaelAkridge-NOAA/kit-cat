@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KIT-CAT | Keep it Tiny Coral Annotation Tool</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>KIT-CAT <span class="header-subtitle">Tiny Coral Annotation Tool</span></h1>
+    </div>
+    <div class="header-center">
+      <span id="progress-text"></span>
+    </div>
+    <div class="header-right">
+      <div class="model-status">
+        <span id="model-status-dot" class="status-dot loading"></span>
+        <span id="model-status-text">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Left sidebar: image list + upload -->
+    <aside id="sidebar">
+      <div id="drop-zone">
+        <input type="file" id="file-input" multiple accept="image/jpeg,image/png,image/jpg">
+        <div class="drop-content">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Drop images here or click to upload</span>
+        </div>
+      </div>
+
+      <!-- Upload settings -->
+      <div class="upload-settings">
+        <div class="us-row">
+          <label class="us-label">Model</label>
+          <select id="setting-model" class="us-select">
+            <option value="t3">T3 &mdash; Detailed</option>
+            <option value="t1">T1 &mdash; Coarse</option>
+          </select>
+        </div>
+        <div class="us-row">
+          <label class="us-label">Grid</label>
+          <div class="preset-btns">
+            <button class="preset-btn" data-rows="5"  data-cols="5">5&times;5</button>
+            <button class="preset-btn active" data-rows="10" data-cols="10">10&times;10</button>
+            <button class="preset-btn" data-rows="15" data-cols="15">15&times;15</button>
+            <button class="preset-btn" data-rows="20" data-cols="20">20&times;20</button>
+            <button class="preset-btn" data-rows="custom">Custom</button>
+          </div>
+        </div>
+        <div class="us-row hidden" id="custom-grid-row">
+          <label class="us-label">Rows &times; Cols</label>
+          <div class="custom-grid-inputs">
+            <input type="number" id="grid-rows-input" value="10" min="2" max="50" class="us-num">
+            <span class="us-x">x</span>
+            <input type="number" id="grid-cols-input" value="10" min="2" max="50" class="us-num">
+          </div>
+        </div>
+      </div>
+
+      <div id="image-list"></div>
+
+      <!-- Patch preview for selected point -->
+      <div id="patch-preview" class="hidden">
+        <canvas id="patch-preview-canvas"></canvas>
+        <div id="patch-preview-label"></div>
+      </div>
+    </aside>
+
+    <!-- Center: canvas viewer -->
+    <section id="canvas-section">
+      <div id="canvas-toolbar">
+        <div class="filter-group">
+          <span class="filter-label">Show:</span>
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="unconfirmed">Unconfirmed</button>
+          <button class="filter-btn" data-filter="unclassified">Unclassified</button>
+
+          <!-- Label filter dropdown -->
+          <div class="label-filter-wrap">
+            <button id="label-filter-btn" class="filter-btn">Any label &#x25BE;</button>
+            <div id="label-filter-dropdown" class="label-filter-dropdown">
+              <input type="text" id="label-filter-search" placeholder="Search labels...">
+              <div id="label-filter-list" class="label-filter-list"></div>
+            </div>
+          </div>
+
+          <!-- Confidence threshold -->
+          <div class="conf-filter-wrap">
+            <span class="filter-label">Min conf:</span>
+            <input type="range" id="conf-slider" min="0" max="95" step="5" value="0" class="conf-slider">
+            <span id="conf-value" class="conf-value">0%</span>
+          </div>
+
+          <!-- Sort -->
+          <div class="sort-wrap">
+            <span class="filter-label">Sort:</span>
+            <select id="sort-select" class="us-select sort-select">
+              <option value="position">Position</option>
+              <option value="label">Label</option>
+              <option value="confidence">Confidence</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="toolbar-right">
+          <label class="toggle-label">
+            <input type="checkbox" id="auto-advance" checked>
+            Auto-advance
+          </label>
+          <button id="btn-batch-confirm" class="btn-tool">⚡ Batch confirm ≥90%</button>
+        </div>
+      </div>
+      <div id="canvas-container">
+        <canvas id="image-canvas"></canvas>
+        <canvas id="overlay-canvas"></canvas>
+        <div id="canvas-placeholder">
+          <p>Upload images to begin annotating</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right sidebar: point detail + legend -->
+    <aside id="detail-sidebar">
+      <div class="detail-sidebar-header">
+        <h3>Point Detail</h3>
+        <div class="export-btns">
+          <button id="btn-export" class="btn-sm" title="Export current image as CSV">CSV</button>
+          <button id="btn-export-all" class="btn-sm" title="Export all images as CSV">All CSV</button>
+        </div>
+      </div>
+
+      <div id="point-detail">
+        <p class="hint">Click a point on the image to annotate it</p>
+      </div>
+
+      <div class="keyboard-hints">
+        <div class="hints-title">Keyboard Shortcuts</div>
+        <div class="hint-row"><kbd>Enter</kbd><span>Confirm top prediction</span></div>
+        <div class="hint-row"><kbd>1 – 5</kbd><span>Confirm prediction #</span></div>
+        <div class="hint-row"><kbd>N</kbd><span>Next unconfirmed</span></div>
+        <div class="hint-row"><kbd>U</kbd><span>Unclassify point</span></div>
+        <div class="hint-row"><kbd>← →</kbd><span>Navigate points</span></div>
+        <div class="hint-row"><kbd>R</kbd><span>Reset zoom / pan</span></div>
+        <div class="hint-row"><kbd>Esc</kbd><span>Deselect</span></div>
+        <div class="hint-row"><kbd>Scroll</kbd><span>Zoom canvas</span></div>
+        <div class="hint-row"><kbd>Drag</kbd><span>Pan canvas</span></div>
+        <div class="hint-row"><kbd>Dbl-click</kbd><span>Reset view</span></div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-title">Category Colors</div>
+        <div class="legend-grid">
+          <div class="legend-item"><span class="dot" style="background:#f97316"></span>Hard Coral</div>
+          <div class="legend-item"><span class="dot" style="background:#a855f7"></span>CCA</div>
+          <div class="legend-item"><span class="dot" style="background:#a3e635"></span>Turf Algae</div>
+          <div class="legend-item"><span class="dot" style="background:#22c55e"></span>Macroalgae</div>
+          <div class="legend-item"><span class="dot" style="background:#ec4899"></span>Soft Coral</div>
+          <div class="legend-item"><span class="dot" style="background:#d97706"></span>Sediment</div>
+          <div class="legend-item"><span class="dot" style="background:#60a5fa"></span>Other</div>
+          <div class="legend-item"><span class="dot" style="background:#10b981"></span>Confirmed ✓</div>
+          <div class="legend-item"><span class="dot" style="background:#6b7280"></span>Unclassified</div>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+services:
+  annotator:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+    environment:
+      MODEL_T3: /models/yolo11m_cls_noaa-pacific-benthic-t3.pt
+      MODEL_T1: /models/yolo11m_cls_noaa-pacific-benthic-t.pt

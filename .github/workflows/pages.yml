@@ -1,0 +1,47 @@
+name: Deploy KIT-CAT to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ONNX models from HuggingFace
+        run: |
+          mkdir -p docs/models
+          curl -L --fail --retry 3 \
+            "https://huggingface.co/NMFS-OSI/yolo11m-cls-noaa-pacific-benthic-cover-t3/resolve/main/yolo11m_cls_noaa-pacific-benthic-t3.onnx" \
+            -o docs/models/yolo11m_cls_noaa-pacific-benthic-t3.onnx
+          curl -L --fail --retry 3 \
+            "https://huggingface.co/NMFS-OSI/yolo11m-cls-noaa-pacific-benthic-cover-t1/resolve/main/yolo11m_cls_noaa-pacific-benthic-t1.onnx" \
+            -o docs/models/yolo11m_cls_noaa-pacific-benthic-t1.onnx
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload docs/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,14 @@
+name: coral_compare
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - ultralytics>=8.3.0
+      - onnx>=1.16.0
+      - onnxruntime>=1.19.0
+      - onnxsim>=0.4.36
+      - pillow>=10.4.0
+      - numpy>=1.26.0
