@@ -65,6 +65,16 @@ const LABEL_URLS = {
 const _sessionPromises = {}
 const _labelsCache = {}
 let   _ortReady = false
+let   _gpuBackend = 'cpu'   // 'gpu' | 'cpu' — set after first session loads
+
+// Probe whether the browser supports WebGPU
+async function _webGpuAvailable() {
+  try {
+    if (!navigator.gpu) return false
+    const adapter = await navigator.gpu.requestAdapter()
+    return !!adapter
+  } catch { return false }
+}
 
 const MODEL_CACHE_NAME = 'kitcat-models-v1'
 
@@ -83,6 +93,10 @@ async function _loadSession(key) {
   let arrayBuffer
 
   // Try browser Cache API — avoids re-downloading ~42 MB on every visit
+  // Probe WebGPU once (first call only) and select execution provider
+  const useGpu = await _webGpuAvailable()
+  if (_gpuBackend !== 'gpu' && useGpu) _gpuBackend = 'gpu'
+
   const fromCache = await (async () => {
     try {
       const cache = await caches.open(MODEL_CACHE_NAME)
@@ -105,11 +119,22 @@ async function _loadSession(key) {
       .catch(() => {})  // silently skip if Cache API unavailable (e.g. private browsing)
   }
 
-  setModelStatus('loading', `Initialising ${key.toUpperCase()} model…`)
+  const backendLabel = useGpu ? 'GPU (WebGPU)' : 'CPU (WASM)'
+  setModelStatus('loading', `Initialising ${key.toUpperCase()} model on ${backendLabel}…`)
+  const providers = useGpu ? ['webgpu', 'wasm'] : ['wasm']
   const session = await ort.InferenceSession.create(arrayBuffer, {
-    executionProviders: ['wasm'],
+    executionProviders: providers,
     graphOptimizationLevel: 'all',
   })
+  // First-inference GPU warm-up notice
+  if (useGpu) {
+    setModelStatus('loading', `Warming up GPU shaders for ${key.toUpperCase()}…`)
+    // Run a tiny dummy inference to trigger shader compilation before real images arrive
+    try {
+      const dummy = new ort.Tensor('float32', new Float32Array(3 * IMGSZ * IMGSZ), [1, 3, IMGSZ, IMGSZ])
+      await session.run({ [session.inputNames[0]]: dummy })
+    } catch { /* warm-up is best-effort */ }
+  }
   return session
 }
 
@@ -273,6 +298,12 @@ function setModelStatus(cls, text) {
   $statusText.textContent = text
 }
 
+// Returns a consistent "ready" label including backend info
+function readyLabel(modelKey) {
+  const backend = _gpuBackend === 'gpu' ? ' · WebGPU ⚡' : ' · CPU'
+  return `${modelKey.toUpperCase()} ready${backend}`
+}
+
 function startClassifyAnimation() {
   $classifyLoading?.classList.add('visible')
 }
@@ -420,7 +451,7 @@ async function classifyRecord(record, imgEl) {
     drawOverlay(); renderDetail(); renderProgress(); refreshImageListItem(); updateStatusText()
   }
   if (!inferenceError) {
-    setModelStatus('ready', `Browser mode — ${key.toUpperCase()} ready`)
+    setModelStatus('ready', readyLabel(key))
   }
 }
 
@@ -1450,12 +1481,12 @@ $settingModel?.addEventListener('change', () => {
   // Preload the chosen model so it's ready before the first upload
   if (!_sessionPromises[newKey]) {
     getSession(newKey)
-      .then(() => setModelStatus('ready', `Browser mode — ${newKey.toUpperCase()} ready`))
+      .then(() => setModelStatus('ready', readyLabel(newKey)))
       .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
   } else {
     // Already loading or loaded — just sync the status text when settled
     _sessionPromises[newKey]
-      .then(() => setModelStatus('ready', `Browser mode — ${newKey.toUpperCase()} ready`))
+      .then(() => setModelStatus('ready', readyLabel(newKey)))
       .catch(() => {})
   }
 })
@@ -1565,7 +1596,7 @@ async function init() {
   const defaultKey = state.uploadSettings.model ?? 't3'
   const otherKey   = defaultKey === 't3' ? 't1' : 't3'
   const loadDefault = getSession(defaultKey)
-    .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
+    .then(() => setModelStatus('ready', readyLabel(defaultKey)))
     .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
   // Load other model silently in background (don't change status text on completion)
   getSession(otherKey).catch(() => {})  // failure handled when actually used
