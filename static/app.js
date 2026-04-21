@@ -153,6 +153,9 @@ function buildImageItem(record) {
   const el = document.createElement('div')
   el.className = 'image-item' + (record.id === state.currentId ? ' active' : '')
   el.dataset.id = record.id
+  el.tabIndex = 0
+  el.setAttribute('role', 'button')
+  el.setAttribute('aria-label', `Select image ${record.name}`)
   el.innerHTML = `
     <div class="image-thumb">
       <img src="${record.thumbnail}" alt="${record.name}" loading="lazy">
@@ -180,6 +183,12 @@ function buildImageItem(record) {
     }
   })
   el.addEventListener('click', () => loadImage(record.id))
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      loadImage(record.id)
+    }
+  })
   return el
 }
 
@@ -610,7 +619,7 @@ function renderDetail() {
       <span class="pred-code">${a.code ?? '?'}</span>
       <span class="pred-label" title="${a.ba_gr_label}">${a.ba_gr_label}</span>
       <span class="pred-score">${scoreStr}</span>
-      <button class="btn-use" data-ann-idx="${i}">Use</button>
+      <button class="btn-use" data-ann-idx="${i}" aria-label="Use prediction ${a.code ?? '?'}">Use</button>
     </div>`
   }).join('')
 
@@ -951,7 +960,13 @@ document.addEventListener('keydown', e => {
 document.querySelectorAll('.filter-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     state.filterState.visibility = btn.dataset.filter
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === btn))
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      const isActive = b === btn
+      b.classList.toggle('active', isActive)
+      if (b.dataset.filter) {
+        b.setAttribute('aria-pressed', isActive)
+      }
+    })
     drawOverlay()
   })
 })
@@ -1181,6 +1196,12 @@ const $dropZone  = document.getElementById('drop-zone')
 const $fileInput = document.getElementById('file-input')
 
 $dropZone.addEventListener('click', () => $fileInput.click())
+$dropZone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    $fileInput.click()
+  }
+})
 $fileInput.addEventListener('change', () => { uploadFiles([...$fileInput.files]); $fileInput.value = '' })
 
 $dropZone.addEventListener('dragover',  e => { e.preventDefault(); $dropZone.classList.add('drag-over') })

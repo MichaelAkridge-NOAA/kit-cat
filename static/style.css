@@ -102,10 +102,15 @@ main {
 .drop-content svg { display: block; margin: 0 auto 8px; }
 
 #drop-zone.drag-over .drop-content,
-#drop-zone:hover .drop-content {
+#drop-zone:hover .drop-content,
+#drop-zone:focus-visible .drop-content {
   border-color: var(--accent);
   color: var(--text);
   background: rgba(59, 130, 246, 0.06);
+}
+
+#drop-zone:focus-visible {
+  outline: none;
 }
 
 #file-input { display: none; }
@@ -158,6 +163,7 @@ main {
   position: relative;
 }
 .image-item:hover  { border-color: rgba(59, 130, 246, 0.5); }
+.image-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .image-item.active { border-color: var(--accent); background: rgba(59, 130, 246, 0.1); }
 .image-item.error  { border-color: rgba(239, 68, 68, 0.5); }
 .image-item.uploading { opacity: 0.6; cursor: default; }
