@@ -61,15 +61,24 @@ const LABEL_URLS = {
   t1: './labels_t1.json',
 }
 
-const _sessions = {}
+// Stores in-flight / resolved promises — prevents duplicate concurrent loads
+const _sessionPromises = {}
 const _labelsCache = {}
 let   _ortReady = false
 
 const MODEL_CACHE_NAME = 'kitcat-models-v1'
 
 async function getSession(key) {
-  if (_sessions[key]) return _sessions[key]
+  if (_sessionPromises[key]) return _sessionPromises[key]
+  // Store promise immediately so concurrent callers share the same load
+  _sessionPromises[key] = _loadSession(key).catch(err => {
+    delete _sessionPromises[key]  // allow retry if load fails
+    throw err
+  })
+  return _sessionPromises[key]
+}
 
+async function _loadSession(key) {
   const url = MODEL_URLS[key]
   let arrayBuffer
 
@@ -87,7 +96,7 @@ async function getSession(key) {
   } else {
     setModelStatus('loading', `Downloading ${key.toUpperCase()} model (~42 MB, cached after first load)…`)
     const res = await fetch(url)
-    if (!res.ok) throw new Error(`HTTP ${res.status} — model file not found`)
+    if (!res.ok) throw new Error(`HTTP ${res.status} — model file not found at ${url}`)
     const clone = res.clone()
     arrayBuffer = await res.arrayBuffer()
     // Store in cache in background — don't block inference startup
@@ -101,7 +110,6 @@ async function getSession(key) {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   })
-  _sessions[key] = session
   return session
 }
 
@@ -307,7 +315,14 @@ async function classifyRecord(record, imgEl) {
   let done = 0
   let inferenceError = null
   state.classifyingIds.add(record.id)
+  record._classifyDone = 0   // read by drawOverlay for canvas progress pill
   startClassifyAnimation()
+  refreshImageListItem()  // show classifying spinner in image list immediately
+
+  // Redraw canvas periodically so the progress pill shows during model download
+  const _progressTimer = setInterval(() => {
+    if (record.id === state.currentId) drawOverlay()
+  }, 400)
 
   for (const point of points) {
     try {
@@ -333,6 +348,7 @@ async function classifyRecord(record, imgEl) {
     }
 
     done++
+    record._classifyDone = done
     const isActive = record.id === state.currentId
     if (!inferenceError) {
       const pct = Math.round(done / points.length * 100)
@@ -346,13 +362,17 @@ async function classifyRecord(record, imgEl) {
     }
   }
 
+  clearInterval(_progressTimer)
+  delete record._classifyDone
   state.classifyingIds.delete(record.id)
   if (state.classifyingIds.size === 0) $classifyLoading?.classList.remove('visible')
   record.num_confirmed = record.points.filter(isConfirmed).length
   if (record.id === state.currentId) {
     drawOverlay(); renderDetail(); renderProgress(); refreshImageListItem(); updateStatusText()
   }
-  setModelStatus('ready', `Browser mode — ${key.toUpperCase()} ready`)
+  if (!inferenceError) {
+    setModelStatus('ready', `Browser mode — ${key.toUpperCase()} ready`)
+  }
 }
 
 // ─── Image list ──────────────────────────────────────────────────────────────
@@ -421,6 +441,8 @@ function refreshImageListItem() {
   const spans = el.querySelectorAll('.image-progress span')
   if (spans[0]) spans[0].textContent = `${confirmed} confirmed`
   if (spans[1]) spans[1].textContent = `${confirmed}/${total}`
+  // Show pulsing progress bar while classifying
+  el.classList.toggle('classifying', state.classifyingIds.has(state.currentId))
 }
 
 // ─── Load image ──────────────────────────────────────────────────────────────
@@ -496,64 +518,111 @@ function drawImage() {
 function drawOverlay() {
   overlayCtx.clearRect(0, 0, $overlayCanvas.width, $overlayCanvas.height)
   const t = getTransform()
-  if (!t || !state.record?.points.length) return
 
-  const patchSize = state.record.patch_size ?? PATCH_SIZE
-  const r = Math.max(4, Math.min(11, (patchSize / 2) * t.scale * 0.35))
-  const visible = new Set(filteredPoints().map(p => p.id))
+  if (t && state.record?.points.length) {
+    const patchSize = state.record.patch_size ?? PATCH_SIZE
+    const r = Math.max(4, Math.min(11, (patchSize / 2) * t.scale * 0.35))
+    const visible = new Set(filteredPoints().map(p => p.id))
 
-  state.record.points.forEach((point, idx) => {
-    if (!visible.has(point.id)) return
-    const x     = t.offsetX + point.column * t.scale
-    const y     = t.offsetY + point.row    * t.scale
-    const color  = getPointColor(point)
-    const isSel  = idx === state.selectedIdx
-    const isHov  = idx === state.hoverIdx
-    const half   = isSel ? r * 1.7 : r + (isHov && !isSel ? 2 : 0)
+    state.record.points.forEach((point, idx) => {
+      if (!visible.has(point.id)) return
+      const x     = t.offsetX + point.column * t.scale
+      const y     = t.offsetY + point.row    * t.scale
+      const color  = getPointColor(point)
+      const isSel  = idx === state.selectedIdx
+      const isHov  = idx === state.hoverIdx
+      const half   = isSel ? r * 1.7 : r + (isHov && !isSel ? 2 : 0)
 
-    // Square: subtle fill so points are visible when zoomed out
-    overlayCtx.shadowBlur  = isSel ? 18 : 0
-    overlayCtx.shadowColor = color
-    overlayCtx.fillStyle   = color
-    overlayCtx.globalAlpha = isConfirmed(point) ? 0.18 : 0.12
-    overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
-    overlayCtx.globalAlpha = 1.0
-    overlayCtx.shadowBlur  = 0
+      // Square: subtle fill so points are visible when zoomed out
+      overlayCtx.shadowBlur  = isSel ? 18 : 0
+      overlayCtx.shadowColor = color
+      overlayCtx.fillStyle   = color
+      overlayCtx.globalAlpha = isConfirmed(point) ? 0.18 : 0.12
+      overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
+      overlayCtx.globalAlpha = 1.0
+      overlayCtx.shadowBlur  = 0
 
-    // Square outline
-    overlayCtx.strokeStyle = color
-    overlayCtx.lineWidth   = isSel ? 2.5 : 1.5
-    overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
+      // Square outline
+      overlayCtx.strokeStyle = color
+      overlayCtx.lineWidth   = isSel ? 2.5 : 1.5
+      overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
 
-    // Tiny center dot for precise location
+      // Tiny center dot for precise location
+      overlayCtx.beginPath()
+      overlayCtx.arc(x, y, 2, 0, Math.PI * 2)
+      overlayCtx.fillStyle   = color
+      overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
+      overlayCtx.fill()
+      overlayCtx.globalAlpha = 1.0
+
+      if (isSel) {
+        // Inner selection square ring
+        overlayCtx.strokeStyle = 'rgba(255,255,255,0.75)'
+        overlayCtx.lineWidth   = 2
+        overlayCtx.strokeRect(x - half - 5, y - half - 5, (half + 5) * 2, (half + 5) * 2)
+        // Outer dim square ring
+        overlayCtx.strokeStyle = 'rgba(255,255,255,0.25)'
+        overlayCtx.lineWidth   = 1.5
+        overlayCtx.strokeRect(x - half - 11, y - half - 11, (half + 11) * 2, (half + 11) * 2)
+      }
+
+      if (isSel || isHov) {
+        const ann  = point.annotations?.[0]
+        const code = ann?.code ?? '?'
+        const name = isSel ? (ann?.ba_gr_label ?? '') : ''
+        _drawTooltipPill(overlayCtx, x, y - half - 5, code, name)
+      }
+    })
+
+    // Sidebar patch preview
+    _drawPatchPreview(state.selectedIdx >= 0 ? state.record?.points[state.selectedIdx] : null)
+  }
+
+  // ── Canvas progress pill — shown even while image is loading ───────────────
+  if (state.record && state.classifyingIds.has(state.record.id)) {
+    const total = state.record.points.length
+    const done  = state.record._classifyDone ?? 0
+    const pct   = total > 0 ? Math.round(done / total * 100) : 0
+    const modelLabel = (state.record.model_used ?? 't3').toUpperCase()
+    const txt = done === 0
+      ? `Loading ${modelLabel} model…  (first load may take 30–60 s)`
+      : `Classifying  ${done} / ${total}  (${pct}%)`
+
+    const W = $overlayCanvas.width
+    const H = $overlayCanvas.height
+    overlayCtx.save()
+    overlayCtx.font = 'bold 14px sans-serif'
+    const tw   = overlayCtx.measureText(txt).width
+    const padX = 18, padY = 10, barH = 4
+    const bw   = Math.min(tw + padX * 2, W - 24)
+    const bh   = 14 + padY * 2 + (done > 0 ? barH + 6 : 0)
+    const bx   = Math.round((W - bw) / 2)
+    const by   = Math.round(H * 0.42)   // slightly above centre
+
+    // Backdrop
+    overlayCtx.fillStyle = 'rgba(0,0,0,0.75)'
     overlayCtx.beginPath()
-    overlayCtx.arc(x, y, 2, 0, Math.PI * 2)
-    overlayCtx.fillStyle   = color
-    overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
+    if (overlayCtx.roundRect) overlayCtx.roundRect(bx, by, bw, bh, 8)
+    else overlayCtx.rect(bx, by, bw, bh)
     overlayCtx.fill()
-    overlayCtx.globalAlpha = 1.0
 
-    if (isSel) {
-      // Inner selection square ring
-      overlayCtx.strokeStyle = 'rgba(255,255,255,0.75)'
-      overlayCtx.lineWidth   = 2
-      overlayCtx.strokeRect(x - half - 5, y - half - 5, (half + 5) * 2, (half + 5) * 2)
-      // Outer dim square ring
-      overlayCtx.strokeStyle = 'rgba(255,255,255,0.25)'
-      overlayCtx.lineWidth   = 1.5
-      overlayCtx.strokeRect(x - half - 11, y - half - 11, (half + 11) * 2, (half + 11) * 2)
+    // Progress bar (only once classification has started)
+    if (done > 0) {
+      const barY  = by + bh - barH - 6
+      const barXs = bx + 8, barXe = bw - 16
+      overlayCtx.fillStyle = 'rgba(255,255,255,0.18)'
+      overlayCtx.fillRect(barXs, barY, barXe, barH)
+      overlayCtx.fillStyle = '#3b82f6'
+      overlayCtx.fillRect(barXs, barY, Math.round(barXe * pct / 100), barH)
     }
 
-    if (isSel || isHov) {
-      const ann  = point.annotations?.[0]
-      const code = ann?.code ?? '?'
-      const name = isSel ? (ann?.ba_gr_label ?? '') : ''
-      _drawTooltipPill(overlayCtx, x, y - half - 5, code, name)
-    }
-  })
-
-  // Sidebar patch preview
-  _drawPatchPreview(state.selectedIdx >= 0 ? state.record?.points[state.selectedIdx] : null)
+    // Text
+    overlayCtx.fillStyle    = '#fff'
+    overlayCtx.textAlign    = 'center'
+    overlayCtx.textBaseline = 'top'
+    overlayCtx.fillText(txt, W / 2, by + padY, bw - padX * 2)
+    overlayCtx.restore()
+  }
 }
 
 function _drawTooltipPill(ctx, cx, bottomY, code, name) {
@@ -1198,7 +1267,19 @@ $btnExportAll.addEventListener('click', () => {
 // ─── Upload settings wiring ──────────────────────────────────────────────────
 
 $settingModel?.addEventListener('change', () => {
-  state.uploadSettings.model = $settingModel.value
+  const newKey = $settingModel.value
+  state.uploadSettings.model = newKey
+  // Preload the chosen model so it's ready before the first upload
+  if (!_sessionPromises[newKey]) {
+    getSession(newKey)
+      .then(() => setModelStatus('ready', `Browser mode — ${newKey.toUpperCase()} ready`))
+      .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
+  } else {
+    // Already loading or loaded — just sync the status text when settled
+    _sessionPromises[newKey]
+      .then(() => setModelStatus('ready', `Browser mode — ${newKey.toUpperCase()} ready`))
+      .catch(() => {})
+  }
 })
 
 document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
@@ -1284,9 +1365,11 @@ async function init() {
 
   // Preload the default model in the background so it's ready before the first upload
   const defaultKey = state.uploadSettings.model ?? 't3'
-  getSession(defaultKey)
-    .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
-    .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
+  if (!_sessionPromises[defaultKey]) {
+    getSession(defaultKey)
+      .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
+      .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
+  }
 }
 
 init()
