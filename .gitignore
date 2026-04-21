@@ -1,5 +1,7 @@
 # ONNX model files are hosted on HuggingFace — do not commit to this repo
 docs/models/
+models/*.onnx
+models/*.pt
 
 # Python / local exports
 __pycache__/
@@ -8,7 +10,3 @@ __pycache__/
 runs/
 .vscode/settings.json
 scripts/export_onnx.py
-models/yolo11m_cls_noaa-pacific-benthic-t.onnx
-models/yolo11m_cls_noaa-pacific-benthic-t.pt
-models/yolo11m_cls_noaa-pacific-benthic-t3.onnx
-models/yolo11m_cls_noaa-pacific-benthic-t3.pt

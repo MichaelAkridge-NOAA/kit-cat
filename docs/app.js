@@ -247,6 +247,8 @@ const $classifyLoadingTxt = document.getElementById('classify-loading-text')
 const $autoAdvanceChk = document.getElementById('auto-advance')
 const $batchConfirm     = document.getElementById('btn-batch-confirm')
 const $batchConfInput   = document.getElementById('batch-conf-input')
+const $confHistogram    = document.getElementById('conf-histogram')
+const $coverSummary     = document.getElementById('cover-summary')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -1114,14 +1116,65 @@ function saveDebounced() {
 
 // ─── Progress ────────────────────────────────────────────────────────────────
 
+function drawHistogram() {
+  if (!$confHistogram) return
+  const ctx = $confHistogram.getContext('2d')
+  const W = $confHistogram.width, H = $confHistogram.height
+  ctx.clearRect(0, 0, W, H)
+  const pts = state.record?.points ?? []
+  if (!pts.length) return
+  // 10 bins: [0,.1)…[.9,1.0]
+  const bins = new Array(10).fill(0)
+  pts.forEach(p => {
+    const s = p.annotations?.[0]?.score
+    if (s == null) return
+    bins[Math.min(9, Math.floor(s * 10))]++
+  })
+  const maxCount = Math.max(1, ...bins)
+  const barW = W / 10
+  bins.forEach((count, i) => {
+    if (!count) return
+    const bH = Math.max(2, Math.round((count / maxCount) * (H - 2)))
+    ctx.fillStyle = `hsl(${Math.round((i / 9) * 120)}, 65%, 52%)`
+    ctx.fillRect(i * barW + 1, H - bH, barW - 2, bH)
+  })
+  // Threshold line
+  const lx = Math.round(((parseInt($batchConfInput?.value) || 80) / 100) * W)
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+  ctx.lineWidth = 1.5; ctx.setLineDash([2, 2])
+  ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H); ctx.stroke()
+  ctx.setLineDash([])
+}
+
+function renderCoverSummary() {
+  if (!$coverSummary) return
+  const pts = state.record?.points ?? []
+  const counts = {}
+  pts.forEach(p => {
+    const code = p.annotations?.[0]?.code
+    if (code) counts[code] = (counts[code] ?? 0) + 1
+  })
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  if (!sorted.length) { $coverSummary.innerHTML = ''; $coverSummary.classList.add('hidden'); return }
+  const total = pts.length
+  $coverSummary.classList.remove('hidden')
+  const chips = sorted.slice(0, 12).map(([code, n]) =>
+    `<span class="cover-chip"><span class="cover-code">${code}</span><span class="cover-pct">${Math.round(n / total * 100)}%</span></span>`
+  ).join('')
+  const extra = sorted.length > 12 ? `<span class="cover-more">+${sorted.length - 12} more</span>` : ''
+  $coverSummary.innerHTML = '<span class="cover-label">Cover:</span>' + chips + extra
+}
+
 function renderProgress() {
   const pts = state.record?.points
-  if (!pts?.length) { $progressText.textContent = ''; return }
+  if (!pts?.length) { $progressText.textContent = ''; drawHistogram(); renderCoverSummary(); return }
   const confirmed    = pts.filter(isConfirmed).length
   const unclassified = pts.filter(isUnclassified).length
   const unconfirmed  = pts.length - confirmed - unclassified
   $progressText.textContent =
     `${confirmed}/${pts.length} confirmed  ${unconfirmed} unconfirmed  ${unclassified} unclassified`
+  drawHistogram()
+  renderCoverSummary()
 }
 
 function updateStatusText() {
@@ -1287,6 +1340,8 @@ document.addEventListener('click', e => {
 // ─── Auto-advance / Batch confirm ────────────────────────────────────────────
 
 $autoAdvanceChk.addEventListener('change', () => { state.autoAdvance = $autoAdvanceChk.checked })
+
+$batchConfInput?.addEventListener('input', drawHistogram)
 
 $batchConfirm.addEventListener('click', () => {
   const pct = Math.min(100, Math.max(1, parseInt($batchConfInput?.value) || 80))
