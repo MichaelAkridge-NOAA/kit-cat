@@ -79,6 +79,16 @@
             <input type="number" id="grid-cols-input" value="10" min="2" max="50" class="us-num">
           </div>
         </div>
+        <div class="us-row">
+          <label class="us-label" for="setting-patch-size">Patch px</label>
+          <select id="setting-patch-size" class="us-select" title="Size of the image patch (in pixels) cropped around each point for classification">
+            <option value="56">56 px — tight crop</option>
+            <option value="84">84 px — small</option>
+            <option value="112" selected>112 px — default</option>
+            <option value="160">160 px — wide</option>
+            <option value="224">224 px — full tile</option>
+          </select>
+        </div>
         <div class="us-row" id="reclassify-row">
           <button id="btn-reclassify" class="btn-reclassify" disabled title="Regenerate grid and reclassify the current image with the settings above">
             &#x21BA; Reclassify current image

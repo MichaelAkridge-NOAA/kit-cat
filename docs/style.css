@@ -189,6 +189,7 @@ main {
 .image-item.active { border-color: var(--accent); background: rgba(59, 130, 246, 0.1); }
 .image-item.error  { border-color: rgba(239, 68, 68, 0.5); }
 .image-item.uploading { opacity: 0.6; cursor: default; }
+.image-item.pending-classify .image-tags::after { content: 'Click to classify'; font-size: 9px; color: var(--text-muted); background: rgba(255,255,255,0.07); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; margin-left: 4px; }
 .image-item.classifying .progress-fill { animation: classify-pulse 1.2s ease-in-out infinite; }
 @keyframes classify-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 

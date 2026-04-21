@@ -147,12 +147,12 @@ async function getLabelCodes(key) {
 }
 
 // Crop patch, resize to 224×224, apply ImageNet normalisation → NCHW float32
-function preprocessPatch(imgEl, cx, cy) {
-  const half = PATCH_SIZE >> 1
+function preprocessPatch(imgEl, cx, cy, patchSize) {
+  const half = patchSize >> 1
   const sx = Math.max(0, cx - half)
   const sy = Math.max(0, cy - half)
-  const sw = Math.min(imgEl.naturalWidth  - sx, PATCH_SIZE)
-  const sh = Math.min(imgEl.naturalHeight - sy, PATCH_SIZE)
+  const sw = Math.min(imgEl.naturalWidth  - sx, patchSize)
+  const sh = Math.min(imgEl.naturalHeight - sy, patchSize)
 
   const cv  = document.createElement('canvas')
   cv.width  = cv.height = IMGSZ
@@ -170,9 +170,9 @@ function preprocessPatch(imgEl, cx, cy) {
   return new ort.Tensor('float32', buf, [1, 3, IMGSZ, IMGSZ])
 }
 
-async function classifyPatch(imgEl, cx, cy, key) {
+async function classifyPatch(imgEl, cx, cy, key, patchSize) {
   const [session, labels] = await Promise.all([getSession(key), getLabelCodes(key)])
-  const tensor = preprocessPatch(imgEl, cx, cy)
+  const tensor = preprocessPatch(imgEl, cx, cy, patchSize)
   const feeds  = { [session.inputNames[0]]: tensor }
   const output = await session.run(feeds)
   const probs  = Array.from(output[session.outputNames[0]].data)
@@ -184,8 +184,8 @@ async function classifyPatch(imgEl, cx, cy, key) {
 
 // ─── Grid generation ─────────────────────────────────────────────────────────
 
-function generateGrid(imgW, imgH, nRows, nCols) {
-  const margin = PATCH_SIZE >> 1
+function generateGrid(imgW, imgH, nRows, nCols, patchSize) {
+  const margin = patchSize >> 1
   const xs = nCols > 1
     ? Array.from({ length: nCols }, (_, c) => Math.round(margin + c * (imgW - 2 * margin) / (nCols - 1)))
     : [Math.round(imgW / 2)]
@@ -199,8 +199,8 @@ function generateGrid(imgW, imgH, nRows, nCols) {
 }
 
 // NOAA stratified random: divide into cellRows x cellCols cells, 1 random point per cell
-function generateStratifiedRandom(imgW, imgH, cellRows, cellCols) {
-  const margin  = PATCH_SIZE >> 1
+function generateStratifiedRandom(imgW, imgH, cellRows, cellCols, patchSize) {
+  const margin  = patchSize >> 1
   const usableW = imgW - 2 * margin
   const usableH = imgH - 2 * margin
   const cellW   = usableW / cellCols
@@ -237,7 +237,7 @@ const state = {
   hoverIdx:      -1,
   isDirty:       false,
   autoAdvance:   true,
-  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa', pointPlacement: 'uniform' },
+  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa', pointPlacement: 'uniform', patchSize: 112 },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -315,7 +315,7 @@ async function uploadFiles(files) {
     alert('ONNX Runtime is not ready. Check your internet connection and reload.')
     return
   }
-  const { model, rows, cols } = state.uploadSettings
+  const { model, rows, cols, patchSize } = state.uploadSettings
 
   for (const file of files) {
     const placeholder = createUploadingItem(file.name)
@@ -344,10 +344,10 @@ async function uploadFiles(files) {
       // 3. Build record (all-client state)
       const { gridMethod, pointPlacement } = state.uploadSettings
       const points = gridMethod === 'noaa'
-        ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, 2, 5)
+        ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, 2, 5, patchSize)
         : (pointPlacement === 'stratified'
-          ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols)
-          : generateGrid(img.naturalWidth, img.naturalHeight, rows, cols))
+          ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols, patchSize)
+          : generateGrid(img.naturalWidth, img.naturalHeight, rows, cols, patchSize))
       const record = {
         id:   crypto.randomUUID(),
         name: file.name,
@@ -355,7 +355,7 @@ async function uploadFiles(files) {
         thumbnail: makeThumbnail(img),
         original_image_width:  img.naturalWidth,
         original_image_height: img.naturalHeight,
-        patch_size:  PATCH_SIZE,
+        patch_size:  patchSize,
         model_used:  model,
         grid_rows:   gridMethod === 'noaa' ? 2 : rows,
         grid_cols:   gridMethod === 'noaa' ? 5 : cols,
@@ -364,11 +364,19 @@ async function uploadFiles(files) {
       }
       state.images.push(record)
       placeholder.replaceWith(buildImageItem(record))
-      if (!state.currentId) await loadImage(record.id)
-      delete state._processingFile  // classifyRecord pill takes over
-      // 4. Classify in background (non-blocking)
-      classifyRecord(record, img).catch(err =>
-        console.error('Classification error:', err))
+      const isFirst = !state.currentId
+      if (isFirst) {
+        await loadImage(record.id)
+        delete state._processingFile  // classifyRecord pill takes over
+        // 4. Classify the active image immediately (non-blocking)
+        classifyRecord(record, img).catch(err =>
+          console.error('Classification error:', err))
+      } else {
+        // Defer classification until the user clicks this image
+        record._pendingClassify = true
+        delete state._processingFile
+        refreshImageListItem()
+      }
     } catch (err) {
       delete state._processingFile
       placeholder.replaceWith(buildErrorItem(file.name, err?.message ?? String(err)))
@@ -405,7 +413,7 @@ async function classifyRecord(record, imgEl) {
 
   for (const point of points) {
     try {
-      const top5 = await classifyPatch(imgEl, point.column, point.row, key)
+      const top5 = await classifyPatch(imgEl, point.column, point.row, key, record.patch_size ?? PATCH_SIZE)
       point.annotations = top5.map(t => ({
         id: crypto.randomUUID(),
         benthic_attribute: t.code,
@@ -465,7 +473,8 @@ function buildImageItem(record) {
   const gridTag   = record.grid_rows  ? `${record.grid_rows}x${record.grid_cols}` : ''
 
   const el = document.createElement('div')
-  el.className = 'image-item' + (record.id === state.currentId ? ' active' : '')
+  const pendingCls = record._pendingClassify ? ' pending-classify' : ''
+  el.className = 'image-item' + (record.id === state.currentId ? ' active' : '') + pendingCls
   el.dataset.id = record.id
   el.innerHTML = `
     <div class="image-thumb">
@@ -533,8 +542,10 @@ async function loadImage(id) {
   state.hoverIdx    = -1
   state.zoom = 1.0; state.panX = 0; state.panY = 0
 
-  document.querySelectorAll('.image-item').forEach(el =>
-    el.classList.toggle('active', el.dataset.id === id))
+  document.querySelectorAll('.image-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id)
+    if (el.dataset.id === id) el.classList.remove('pending-classify')
+  })
 
   // Direct reference — mutations to points are visible immediately
   const record = state.images.find(r => r.id === id)
@@ -545,7 +556,16 @@ async function loadImage(id) {
   $placeholder.classList.add('hidden')
 
   const img = new Image()
-  img.onload = () => { state.loadedImg = img; resizeAndDraw() }
+  img.onload = () => {
+    state.loadedImg = img
+    resizeAndDraw()
+    // Start classification now if this image was deferred at upload time
+    if (record._pendingClassify) {
+      record._pendingClassify = false
+      classifyRecord(record, img).catch(err =>
+        console.error('Classification error:', err))
+    }
+  }
   img.src = record.image
 
   renderProgress()
@@ -836,7 +856,7 @@ function filteredPoints() {
 function hitTest(cx, cy) {
   const t = getTransform()
   if (!t) return -1
-  const hitRadius  = Math.max(7, Math.min(16, (PATCH_SIZE / 2) * t.scale * 0.6))
+  const hitRadius  = Math.max(7, Math.min(16, ((state.record?.patch_size ?? PATCH_SIZE) / 2) * t.scale * 0.6))
   const visibleIds = new Set(filteredPoints().map(p => p.id))
   let bestIdx = -1, bestDist = hitRadius * hitRadius
 
@@ -1408,21 +1428,22 @@ $btnReclassify?.addEventListener('click', async () => {
     if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
   }
 
-  const { gridMethod, pointPlacement, rows, cols } = state.uploadSettings
+  const { gridMethod, pointPlacement, rows, cols, patchSize } = state.uploadSettings
   const model = state.uploadSettings.model ?? 't1'
   const W = record.original_image_width
   const H = record.original_image_height
 
   const newPoints = gridMethod === 'noaa'
-    ? generateStratifiedRandom(W, H, 2, 5)
+    ? generateStratifiedRandom(W, H, 2, 5, patchSize)
     : (pointPlacement === 'stratified'
-      ? generateStratifiedRandom(W, H, rows, cols)
-      : generateGrid(W, H, rows, cols))
+      ? generateStratifiedRandom(W, H, rows, cols, patchSize)
+      : generateGrid(W, H, rows, cols, patchSize))
 
   record.points       = newPoints
   record.model_used   = model
   record.grid_rows    = gridMethod === 'noaa' ? 2 : rows
   record.grid_cols    = gridMethod === 'noaa' ? 5 : cols
+  record.patch_size   = patchSize
   record.num_confirmed = 0
   delete record._classifyDone
 
@@ -1540,6 +1561,10 @@ document.querySelectorAll('.placement-btn').forEach(btn => {
     document.querySelectorAll('.placement-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
   })
+})
+
+document.getElementById('setting-patch-size')?.addEventListener('change', function() {
+  state.uploadSettings.patchSize = parseInt(this.value) || 112
 })
 
 // ─── Upload zone ──────────────────────────────────────────────────────────────
