@@ -1,6 +1,6 @@
 # KIT-CAT | Keep it Tiny - Coral Annotation Tool
 
-> A Tiny Tool for Rapid Point/Patch Benthic Annotation
+> A Tiny Tool for Rapid Point/Patch Benthic Annotation 
 
 ![KIT-CAT screenshot](docs/screenshot-app.png)
 
