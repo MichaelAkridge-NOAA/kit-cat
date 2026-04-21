@@ -249,6 +249,7 @@ const $batchConfirm     = document.getElementById('btn-batch-confirm')
 const $batchConfInput   = document.getElementById('batch-conf-input')
 const $confHistogram    = document.getElementById('conf-histogram')
 const $coverSummary     = document.getElementById('cover-summary')
+const $btnReclassify    = document.getElementById('btn-reclassify')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -413,6 +414,7 @@ async function classifyRecord(record, imgEl) {
   if (state.classifyingIds.size === 0) $classifyLoading?.classList.remove('visible')
   record.num_confirmed = record.points.filter(isConfirmed).length
   if (record.id === state.currentId) {
+    if (state.selectedIdx < 0 && record.points.length > 0) state.selectedIdx = 0
     drawOverlay(); renderDetail(); renderProgress(); refreshImageListItem(); updateStatusText()
   }
   if (!inferenceError) {
@@ -514,8 +516,13 @@ async function loadImage(id) {
   img.src = record.image
 
   renderProgress()
+  // Auto-select first point if the record is already classified
+  if (state.selectedIdx < 0 && record.points.some(p => p.annotations?.length)) {
+    state.selectedIdx = 0
+  }
   renderDetail()
   updateStatusText()
+  if ($btnReclassify) $btnReclassify.disabled = false
 }
 
 // ─── Canvas ──────────────────────────────────────────────────────────────────
@@ -566,7 +573,8 @@ function drawOverlay() {
 
   if (t && state.record?.points.length) {
     const patchSize = state.record.patch_size ?? PATCH_SIZE
-    const r = Math.max(4, Math.min(11, (patchSize / 2) * t.scale * 0.35))
+    const sparse = state.record.points.length <= 12
+    const r = Math.max(sparse ? 7 : 4, Math.min(sparse ? 16 : 11, (patchSize / 2) * t.scale * (sparse ? 0.55 : 0.35)))
     const visible = new Set(filteredPoints().map(p => p.id))
 
     state.record.points.forEach((point, idx) => {
@@ -1118,31 +1126,49 @@ function saveDebounced() {
 
 function drawHistogram() {
   if (!$confHistogram) return
-  const ctx = $confHistogram.getContext('2d')
-  const W = $confHistogram.width, H = $confHistogram.height
-  ctx.clearRect(0, 0, W, H)
+  const panel = document.getElementById('histogram-panel')
   const pts = state.record?.points ?? []
-  if (!pts.length) return
+  const scored = pts.filter(p => p.annotations?.[0]?.score != null)
+  if (!scored.length) { panel?.classList.remove('has-data'); return }
+  panel?.classList.add('has-data')
+
+  // Size canvas to its rendered CSS width (fills sidebar)
+  const cssW = $confHistogram.parentElement?.clientWidth || 268
+  $confHistogram.width  = cssW
+  $confHistogram.height = 40
+
+  const ctx = $confHistogram.getContext('2d')
+  const W = cssW, H = 40
+  ctx.clearRect(0, 0, W, H)
+
   // 10 bins: [0,.1)…[.9,1.0]
   const bins = new Array(10).fill(0)
-  pts.forEach(p => {
-    const s = p.annotations?.[0]?.score
-    if (s == null) return
+  scored.forEach(p => {
+    const s = p.annotations[0].score
     bins[Math.min(9, Math.floor(s * 10))]++
   })
   const maxCount = Math.max(1, ...bins)
   const barW = W / 10
   bins.forEach((count, i) => {
     if (!count) return
-    const bH = Math.max(2, Math.round((count / maxCount) * (H - 2)))
+    const bH = Math.max(2, Math.round((count / maxCount) * (H - 4)))
     ctx.fillStyle = `hsl(${Math.round((i / 9) * 120)}, 65%, 52%)`
     ctx.fillRect(i * barW + 1, H - bH, barW - 2, bH)
   })
+
+  // 10% tick labels below bars
+  ctx.fillStyle = 'rgba(148,163,184,0.6)'
+  ctx.font = '8px system-ui,sans-serif'
+  ctx.textAlign = 'center'
+  ;['0', '', '', '', '', '50', '', '', '', '100'].forEach((lbl, i) => {
+    if (lbl) ctx.fillText(lbl + '%', i * barW + barW / 2, H - 1)
+  })
+
   // Threshold line
   const lx = Math.round(((parseInt($batchConfInput?.value) || 80) / 100) * W)
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-  ctx.lineWidth = 1.5; ctx.setLineDash([2, 2])
-  ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H); ctx.stroke()
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)'
+  ctx.lineWidth = 1.5; ctx.setLineDash([2, 3])
+  ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H - 10); ctx.stroke()
   ctx.setLineDash([])
 }
 
@@ -1335,6 +1361,48 @@ $labelFilterSearch?.addEventListener('input', refreshLabelFilterList)
 document.addEventListener('click', e => {
   if ($labelFilterDropdown && !$labelFilterDropdown.contains(e.target) && e.target !== $labelFilterBtn)
     $labelFilterDropdown.classList.remove('open')
+})
+
+// ─── Reclassify current image ─────────────────────────────────────────────
+
+$btnReclassify?.addEventListener('click', async () => {
+  const record = state.record
+  if (!record || !state.loadedImg) return
+  if (state.classifyingIds.has(record.id)) return
+
+  const confirmedCount = record.points.filter(isConfirmed).length
+  if (confirmedCount > 0) {
+    if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
+  }
+
+  const { gridMethod, rows, cols } = state.uploadSettings
+  const model = state.uploadSettings.model ?? 't3'
+  const W = record.original_image_width
+  const H = record.original_image_height
+
+  const newPoints = gridMethod === 'noaa'
+    ? generateStratifiedRandom(W, H, 2, 5)
+    : generateGrid(W, H, rows, cols)
+
+  record.points       = newPoints
+  record.model_used   = model
+  record.grid_rows    = gridMethod === 'noaa' ? 2 : rows
+  record.grid_cols    = gridMethod === 'noaa' ? 5 : cols
+  record.num_confirmed = 0
+  delete record._classifyDone
+
+  state.selectedIdx = -1
+  state.hoverIdx    = -1
+
+  // Rebuild image list item so model/grid tags update
+  const el = $imageList.querySelector(`[data-id="${record.id}"]`)
+  if (el) el.replaceWith(buildImageItem(record))
+
+  drawOverlay(); renderDetail(); renderProgress(); renderCoverSummary(); updateStatusText()
+  $btnReclassify.disabled = true
+  await classifyRecord(record, state.loadedImg).catch(err =>
+    console.error('Reclassify error:', err))
+  $btnReclassify.disabled = false
 })
 
 // ─── Auto-advance / Batch confirm ────────────────────────────────────────────

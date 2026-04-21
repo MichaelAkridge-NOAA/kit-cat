@@ -14,7 +14,6 @@
     </div>
     <div class="header-center">
       <span id="progress-text"></span>
-      <canvas id="conf-histogram" width="200" height="28" title="Confidence score distribution — dashed line = batch threshold"></canvas>
     </div>
     <div class="header-right">
       <div id="classify-loading" aria-live="polite">
@@ -72,6 +71,11 @@
             <span class="us-x">x</span>
             <input type="number" id="grid-cols-input" value="10" min="2" max="50" class="us-num">
           </div>
+        </div>
+        <div class="us-row" id="reclassify-row">
+          <button id="btn-reclassify" class="btn-reclassify" disabled title="Regenerate grid and reclassify the current image with the settings above">
+            &#x21BA; Reclassify current image
+          </button>
         </div>
       </div>
 
@@ -184,6 +188,11 @@
           <div class="legend-item"><span class="dot" style="background:#ffffff;border:1px solid #475569"></span>Confirmed ✓</div>
           <div class="legend-item"><span class="dot" style="background:#6b7280"></span>Unclassified</div>
         </div>
+      </div>
+
+      <div class="legend" id="histogram-panel">
+        <div class="legend-title">Confidence Distribution <span class="histogram-hint">(dashed = threshold)</span></div>
+        <canvas id="conf-histogram" height="40" title="Confidence score distribution — dashed line = batch confirm threshold"></canvas>
       </div>
     </aside>
 
