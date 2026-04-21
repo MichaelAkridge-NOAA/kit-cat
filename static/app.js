@@ -40,7 +40,7 @@ const state = {
   hoverIdx: -1,
   isDirty: false,
   autoAdvance: true,
-  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa' },
+  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa', pointPlacement: 'uniform' },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -117,7 +117,8 @@ const api = {
 // ─── Upload ──────────────────────────────────────────────────────────────────
 
 async function uploadFiles(files) {
-  const { model, rows, cols, gridMethod } = state.uploadSettings
+  const { model, rows, cols, gridMethod, pointPlacement } = state.uploadSettings
+      const apiGridMethod = gridMethod === 'noaa' ? 'noaa' : (pointPlacement === 'stratified' ? 'stratified' : 'uniform')
   for (const file of files) {
     const placeholder = createUploadingItem(file.name)
     $imageList.appendChild(placeholder)
@@ -125,7 +126,7 @@ async function uploadFiles(files) {
       const fd = new FormData()
       fd.append('image', file)
       fd.append('model_name', model)
-      fd.append('grid_method', gridMethod ?? 'uniform')
+      fd.append('grid_method', apiGridMethod)
       fd.append('grid_rows',   String(gridMethod === 'noaa' ? 2 : rows))
       fd.append('grid_cols',   String(gridMethod === 'noaa' ? 5 : cols))
       const res = await fetch('/api/images', { method: 'POST', body: fd })
@@ -1054,8 +1055,9 @@ $btnReclassify?.addEventListener('click', async () => {
   if (confirmedCount > 0) {
     if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
   }
-  const { gridMethod, rows, cols } = state.uploadSettings
+  const { gridMethod, pointPlacement, rows, cols } = state.uploadSettings
   const model = state.uploadSettings.model ?? 't1'
+  const apiGridMethod = gridMethod === 'noaa' ? 'noaa' : (pointPlacement === 'stratified' ? 'stratified' : 'uniform')
   $btnReclassify.disabled = true
   $btnReclassify.textContent = '↺ Reclassifying…'
   try {
@@ -1064,7 +1066,7 @@ $btnReclassify?.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model_name:  model,
-        grid_method: gridMethod ?? 'uniform',
+        grid_method: apiGridMethod,
         grid_rows:   gridMethod === 'noaa' ? 2 : rows,
         grid_cols:   gridMethod === 'noaa' ? 5 : cols,
       }),
@@ -1118,6 +1120,7 @@ document.querySelector('.preset-btn[data-grid="noaa"]')?.addEventListener('click
   this.classList.add('active')
   state.uploadSettings.gridMethod = 'noaa'
   document.getElementById('custom-grid-row')?.classList.add('hidden')
+  document.getElementById('placement-row')?.classList.add('hidden')
 })
 
 document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
@@ -1131,6 +1134,7 @@ document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
     document.getElementById('custom-grid-row')?.classList.add('hidden')
+    document.getElementById('placement-row')?.classList.remove('hidden')
     const $ri = document.getElementById('grid-rows-input')
     const $ci = document.getElementById('grid-cols-input')
     if ($ri) $ri.value = r
@@ -1143,6 +1147,7 @@ document.querySelector('.preset-btn[data-rows="custom"]')?.addEventListener('cli
   this.classList.add('active')
   state.uploadSettings.gridMethod = 'uniform'
   document.getElementById('custom-grid-row')?.classList.remove('hidden')
+  document.getElementById('placement-row')?.classList.remove('hidden')
 })
 
 const $gridRowsInput = document.getElementById('grid-rows-input')
@@ -1161,6 +1166,14 @@ if ($gridColsInput) {
     $gridColsInput.value = v
   })
 }
+
+document.querySelectorAll('.placement-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.uploadSettings.pointPlacement = btn.dataset.placement
+    document.querySelectorAll('.placement-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  })
+})
 
 // ─── Upload zone ──────────────────────────────────────────────────────────────
 

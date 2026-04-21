@@ -265,6 +265,8 @@ async def upload_image(
     if grid_method == "noaa":
         points = generate_stratified_random_points(width, height, cell_rows=2, cell_cols=5, patch_size=patch_size)
         grid_rows, grid_cols = 2, 5
+    elif grid_method == "stratified":
+        points = generate_stratified_random_points(width, height, cell_rows=grid_rows, cell_cols=grid_cols, patch_size=patch_size)
     else:
         points = generate_grid_points(width, height, n_cols=grid_cols, n_rows=grid_rows, patch_size=patch_size)
 
@@ -382,6 +384,10 @@ async def reclassify_image(image_id: str, request: Request):
     if grid_method == "noaa":
         points = generate_stratified_random_points(width, height, cell_rows=2, cell_cols=5, patch_size=patch_size)
         grid_rows, grid_cols = 2, 5
+    elif grid_method == "stratified":
+        grid_rows = max(2, min(50, grid_rows))
+        grid_cols = max(2, min(50, grid_cols))
+        points = generate_stratified_random_points(width, height, cell_rows=grid_rows, cell_cols=grid_cols, patch_size=patch_size)
     else:
         grid_rows = max(2, min(50, grid_rows))
         grid_cols = max(2, min(50, grid_cols))

@@ -212,7 +212,7 @@ const state = {
   hoverIdx:      -1,
   isDirty:       false,
   autoAdvance:   true,
-  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa' },
+  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa', pointPlacement: 'uniform' },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -311,10 +311,12 @@ async function uploadFiles(files) {
         im.src = dataUrl
       })
       // 3. Build record (all-client state)
-      const { gridMethod } = state.uploadSettings
+      const { gridMethod, pointPlacement } = state.uploadSettings
       const points = gridMethod === 'noaa'
         ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, 2, 5)
-        : generateGrid(img.naturalWidth, img.naturalHeight, rows, cols)
+        : (pointPlacement === 'stratified'
+          ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols)
+          : generateGrid(img.naturalWidth, img.naturalHeight, rows, cols))
       const record = {
         id:   crypto.randomUUID(),
         name: file.name,
@@ -1375,14 +1377,16 @@ $btnReclassify?.addEventListener('click', async () => {
     if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
   }
 
-  const { gridMethod, rows, cols } = state.uploadSettings
+  const { gridMethod, pointPlacement, rows, cols } = state.uploadSettings
   const model = state.uploadSettings.model ?? 't1'
   const W = record.original_image_width
   const H = record.original_image_height
 
   const newPoints = gridMethod === 'noaa'
     ? generateStratifiedRandom(W, H, 2, 5)
-    : generateGrid(W, H, rows, cols)
+    : (pointPlacement === 'stratified'
+      ? generateStratifiedRandom(W, H, rows, cols)
+      : generateGrid(W, H, rows, cols))
 
   record.points       = newPoints
   record.model_used   = model
@@ -1461,6 +1465,7 @@ document.querySelector('.preset-btn[data-grid="noaa"]')?.addEventListener('click
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
   this.classList.add('active')
   document.getElementById('custom-grid-row')?.classList.add('hidden')
+  document.getElementById('placement-row')?.classList.add('hidden')
 })
 
 document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
@@ -1472,6 +1477,7 @@ document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
     document.getElementById('custom-grid-row')?.classList.add('hidden')
+    document.getElementById('placement-row')?.classList.remove('hidden')
     const $ri = document.getElementById('grid-rows-input')
     const $ci = document.getElementById('grid-cols-input')
     if ($ri) $ri.value = r; if ($ci) $ci.value = c
@@ -1483,6 +1489,7 @@ document.querySelector('.preset-btn[data-rows="custom"]')?.addEventListener('cli
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
   this.classList.add('active')
   document.getElementById('custom-grid-row')?.classList.remove('hidden')
+  document.getElementById('placement-row')?.classList.remove('hidden')
 })
 
 const $gridRowsInput = document.getElementById('grid-rows-input')
@@ -1494,6 +1501,14 @@ $gridRowsInput?.addEventListener('change', () => {
 $gridColsInput?.addEventListener('change', () => {
   const v = Math.min(50, Math.max(2, parseInt($gridColsInput.value) || 10))
   state.uploadSettings.cols = v; $gridColsInput.value = v
+})
+
+document.querySelectorAll('.placement-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.uploadSettings.pointPlacement = btn.dataset.placement
+    document.querySelectorAll('.placement-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  })
 })
 
 // ─── Upload zone ──────────────────────────────────────────────────────────────

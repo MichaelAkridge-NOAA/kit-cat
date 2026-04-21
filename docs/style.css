@@ -591,6 +591,20 @@ kbd {
 .preset-btn:hover { border-color: var(--accent); color: var(--text); }
 .preset-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+.placement-toggle { display: flex; gap: 3px; }
+.placement-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.12s;
+}
+.placement-btn:hover { border-color: var(--accent); color: var(--text); }
+.placement-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .custom-grid-inputs { display: flex; align-items: center; gap: 4px; }
 
 .us-num {
