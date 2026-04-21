@@ -96,6 +96,24 @@ def generate_grid_points(width: int, height: int, n_cols: int = 10, n_rows: int 
             for row_px in y_pos for col_px in x_pos]
 
 
+def generate_stratified_random_points(width: int, height: int, cell_rows: int = 2, cell_cols: int = 5, patch_size: int = 112) -> List[dict]:
+    import random
+    margin = patch_size // 2
+    usable_w = width  - 2 * margin
+    usable_h = height - 2 * margin
+    cell_w = usable_w / cell_cols
+    cell_h = usable_h / cell_rows
+    points = []
+    for row in range(cell_rows):
+        for col in range(cell_cols):
+            x = margin + int(col * cell_w + random.random() * cell_w)
+            y = margin + int(row * cell_h + random.random() * cell_h)
+            x = max(margin, min(width  - margin, x))
+            y = max(margin, min(height - margin, y))
+            points.append({"id": str(uuid.uuid4()), "row": y, "column": x, "annotations": []})
+    return points
+
+
 def classify_point(img: Image.Image, row: int, col: int, patch_size: int, model) -> List[dict]:
     half = patch_size // 2
     patch = img.crop((max(0, col - half), max(0, row - half),
@@ -208,9 +226,10 @@ async def create_label(request: Request):
 @app.post("/api/images", status_code=201)
 async def upload_image(
     image: UploadFile = File(...),
-    model_name: str = Form("t3"),
-    grid_rows: int = Form(10),
-    grid_cols: int = Form(10),
+    model_name: str = Form("t1"),
+    grid_method: str = Form("noaa"),
+    grid_rows: int = Form(2),
+    grid_cols: int = Form(5),
 ):
     # Validate model selection
     model_name = model_name.lower().strip()
@@ -218,19 +237,21 @@ async def upload_image(
         model = model_t3
     elif model_name == "t1" and model_t1:
         model = model_t1
-    elif model_t3:
-        model = model_t3
-        model_name = "t3"
     elif model_t1:
         model = model_t1
         model_name = "t1"
+    elif model_t3:
+        model = model_t3
+        model_name = "t3"
     else:
         raise HTTPException(503, "Models not loaded yet — retry in a few seconds.")
 
-    if not (2 <= grid_rows <= 50):
-        raise HTTPException(400, "grid_rows must be between 2 and 50.")
-    if not (2 <= grid_cols <= 50):
-        raise HTTPException(400, "grid_cols must be between 2 and 50.")
+    grid_method = grid_method.lower().strip()
+    if grid_method != "noaa":
+        if not (2 <= grid_rows <= 50):
+            raise HTTPException(400, "grid_rows must be between 2 and 50.")
+        if not (2 <= grid_cols <= 50):
+            raise HTTPException(400, "grid_cols must be between 2 and 50.")
 
     raw = await image.read()
     try:
@@ -240,7 +261,12 @@ async def upload_image(
 
     width, height = img.size
     patch_size = max(60, min(width, height) // 14)
-    points = generate_grid_points(width, height, n_cols=grid_cols, n_rows=grid_rows, patch_size=patch_size)
+
+    if grid_method == "noaa":
+        points = generate_stratified_random_points(width, height, cell_rows=2, cell_cols=5, patch_size=patch_size)
+        grid_rows, grid_cols = 2, 5
+    else:
+        points = generate_grid_points(width, height, n_cols=grid_cols, n_rows=grid_rows, patch_size=patch_size)
 
     print(f"[annotator] {image.filename} ({width}×{height}) model={model_name} grid={grid_rows}×{grid_cols} patch={patch_size} — classifying {len(points)} points …")
     for point in points:
@@ -323,6 +349,60 @@ def delete_image(image_id: str):
         raise HTTPException(404, "Image not found.")
     del image_store[image_id]
     return Response(status_code=204)
+
+
+@app.post("/api/images/{image_id}/reclassify")
+async def reclassify_image(image_id: str, request: Request):
+    record = image_store.get(image_id)
+    if not record:
+        raise HTTPException(404, "Image not found.")
+
+    body = await request.json()
+    model_name  = str(body.get("model_name",  "t1")).lower().strip()
+    grid_method = str(body.get("grid_method", "noaa")).lower().strip()
+    grid_rows   = int(body.get("grid_rows",   2))
+    grid_cols   = int(body.get("grid_cols",   5))
+
+    if model_name == "t3" and model_t3:
+        model = model_t3
+    elif model_name == "t1" and model_t1:
+        model = model_t1
+    elif model_t1:
+        model = model_t1; model_name = "t1"
+    elif model_t3:
+        model = model_t3; model_name = "t3"
+    else:
+        raise HTTPException(503, "Models not loaded yet.")
+
+    raw_b64 = record["image"].split(",", 1)[1]
+    img = Image.open(io.BytesIO(base64.b64decode(raw_b64))).convert("RGB")
+    width, height = img.size
+    patch_size = record.get("patch_size", max(60, min(width, height) // 14))
+
+    if grid_method == "noaa":
+        points = generate_stratified_random_points(width, height, cell_rows=2, cell_cols=5, patch_size=patch_size)
+        grid_rows, grid_cols = 2, 5
+    else:
+        grid_rows = max(2, min(50, grid_rows))
+        grid_cols = max(2, min(50, grid_cols))
+        points = generate_grid_points(width, height, n_cols=grid_cols, n_rows=grid_rows, patch_size=patch_size)
+
+    print(f"[reclassify] {record['name']} model={model_name} grid={grid_method} {grid_rows}x{grid_cols} — {len(points)} points …")
+    for point in points:
+        point["annotations"] = classify_point(img, point["row"], point["column"], patch_size, model)
+
+    confirmed, unconfirmed, unclassified = point_stats(points)
+    record.update({
+        "points":          points,
+        "model_used":      model_name,
+        "grid_rows":       grid_rows,
+        "grid_cols":       grid_cols,
+        "num_confirmed":   confirmed,
+        "num_unconfirmed": unconfirmed,
+        "num_unclassified": unclassified,
+        "updated_on":      _now_iso(),
+    })
+    return {k: v for k, v in record.items() if k != "image"}
 
 
 @app.get("/api/images/{image_id}/export.csv")

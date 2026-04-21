@@ -212,7 +212,7 @@ const state = {
   hoverIdx:      -1,
   isDirty:       false,
   autoAdvance:   true,
-  uploadSettings: { model: 't3', rows: 10, cols: 10, gridMethod: 'noaa' },
+  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa' },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -1376,7 +1376,7 @@ $btnReclassify?.addEventListener('click', async () => {
   }
 
   const { gridMethod, rows, cols } = state.uploadSettings
-  const model = state.uploadSettings.model ?? 't3'
+  const model = state.uploadSettings.model ?? 't1'
   const W = record.original_image_width
   const H = record.original_image_height
 

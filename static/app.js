@@ -40,7 +40,7 @@ const state = {
   hoverIdx: -1,
   isDirty: false,
   autoAdvance: true,
-  uploadSettings: { model: 't3', rows: 10, cols: 10 },
+  uploadSettings: { model: 't1', rows: 10, cols: 10, gridMethod: 'noaa' },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -71,6 +71,10 @@ const $statusDot      = document.getElementById('model-status-dot')
 const $statusText     = document.getElementById('model-status-text')
 const $autoAdvanceChk = document.getElementById('auto-advance')
 const $batchConfirm   = document.getElementById('btn-batch-confirm')
+const $batchConfInput = document.getElementById('batch-conf-input')
+const $confHistogram  = document.getElementById('conf-histogram')
+const $coverSummary   = document.getElementById('cover-summary')
+const $btnReclassify  = document.getElementById('btn-reclassify')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -113,7 +117,7 @@ const api = {
 // ─── Upload ──────────────────────────────────────────────────────────────────
 
 async function uploadFiles(files) {
-  const { model, rows, cols } = state.uploadSettings
+  const { model, rows, cols, gridMethod } = state.uploadSettings
   for (const file of files) {
     const placeholder = createUploadingItem(file.name)
     $imageList.appendChild(placeholder)
@@ -121,8 +125,9 @@ async function uploadFiles(files) {
       const fd = new FormData()
       fd.append('image', file)
       fd.append('model_name', model)
-      fd.append('grid_rows', String(rows))
-      fd.append('grid_cols', String(cols))
+      fd.append('grid_method', gridMethod ?? 'uniform')
+      fd.append('grid_rows',   String(gridMethod === 'noaa' ? 2 : rows))
+      fd.append('grid_cols',   String(gridMethod === 'noaa' ? 5 : cols))
       const res = await fetch('/api/images', { method: 'POST', body: fd })
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
       const record = await res.json()
@@ -235,6 +240,11 @@ async function loadImage(id) {
   renderProgress()
   renderDetail()
   updateStatusText()
+  // Auto-select first point if already classified
+  if (state.selectedIdx < 0 && state.record.points.some(p => p.annotations?.length)) {
+    state.selectedIdx = 0
+  }
+  if ($btnReclassify) $btnReclassify.disabled = false
 }
 
 // ─── Canvas ──────────────────────────────────────────────────────────────────
@@ -285,7 +295,8 @@ function drawOverlay() {
   if (!t || !state.record?.points.length) return
 
   const patchSize = state.record.patch_size ?? 112
-  const r = Math.max(4, Math.min(11, (patchSize / 2) * t.scale * 0.35))
+  const sparse = state.record.points.length <= 12
+  const r = Math.max(sparse ? 7 : 4, Math.min(sparse ? 16 : 11, (patchSize / 2) * t.scale * (sparse ? 0.55 : 0.35)))
   const visible = new Set(filteredPoints().map(p => p.id))
 
   state.record.points.forEach((point, idx) => {
@@ -812,14 +823,67 @@ function saveDebounced() {
 
 // ─── Progress ────────────────────────────────────────────────────────────────
 
+function drawHistogram() {
+  if (!$confHistogram) return
+  const panel = document.getElementById('histogram-panel')
+  const pts = state.record?.points ?? []
+  const scored = pts.filter(p => p.annotations?.[0]?.score != null)
+  if (!scored.length) { panel?.classList.remove('has-data'); return }
+  panel?.classList.add('has-data')
+  const cssW = $confHistogram.parentElement?.clientWidth || 268
+  $confHistogram.width  = cssW
+  $confHistogram.height = 40
+  const ctx = $confHistogram.getContext('2d')
+  const W = cssW, H = 40
+  ctx.clearRect(0, 0, W, H)
+  const bins = new Array(10).fill(0)
+  scored.forEach(p => { const s = p.annotations[0].score; bins[Math.min(9, Math.floor(s * 10))]++ })
+  const maxCount = Math.max(1, ...bins)
+  const barW = W / 10
+  bins.forEach((count, i) => {
+    if (!count) return
+    const bH = Math.max(2, Math.round((count / maxCount) * (H - 4)))
+    ctx.fillStyle = `hsl(${Math.round((i / 9) * 120)}, 65%, 52%)`
+    ctx.fillRect(i * barW + 1, H - bH, barW - 2, bH)
+  })
+  ctx.fillStyle = 'rgba(148,163,184,0.6)'
+  ctx.font = '8px system-ui,sans-serif'; ctx.textAlign = 'center'
+  ;['0', '', '', '', '', '50', '', '', '', '100'].forEach((lbl, i) => {
+    if (lbl) ctx.fillText(lbl + '%', i * barW + barW / 2, H - 1)
+  })
+  const lx = Math.round(((parseInt($batchConfInput?.value) || 80) / 100) * W)
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)'
+  ctx.lineWidth = 1.5; ctx.setLineDash([2, 3])
+  ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H - 10); ctx.stroke()
+  ctx.setLineDash([])
+}
+
+function renderCoverSummary() {
+  if (!$coverSummary) return
+  const pts = state.record?.points ?? []
+  const counts = {}
+  pts.forEach(p => { const code = p.annotations?.[0]?.code; if (code) counts[code] = (counts[code] ?? 0) + 1 })
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  if (!sorted.length) { $coverSummary.innerHTML = ''; $coverSummary.classList.add('hidden'); return }
+  const total = pts.length
+  $coverSummary.classList.remove('hidden')
+  const chips = sorted.slice(0, 12).map(([code, n]) =>
+    `<span class="cover-chip"><span class="cover-code">${code}</span><span class="cover-pct">${Math.round(n / total * 100)}%</span></span>`
+  ).join('')
+  const extra = sorted.length > 12 ? `<span class="cover-more">+${sorted.length - 12} more</span>` : ''
+  $coverSummary.innerHTML = '<span class="cover-label">Cover:</span>' + chips + extra
+}
+
 function renderProgress() {
   const pts = state.record?.points
-  if (!pts?.length) { $progressText.textContent = ''; return }
+  if (!pts?.length) { $progressText.textContent = ''; drawHistogram(); renderCoverSummary(); return }
   const confirmed    = pts.filter(isConfirmed).length
   const unclassified = pts.filter(isUnclassified).length
   const unconfirmed  = pts.length - confirmed - unclassified
   $progressText.textContent =
     `${confirmed}/${pts.length} confirmed  ${unconfirmed} unconfirmed  ${unclassified} unclassified`
+  drawHistogram()
+  renderCoverSummary()
 }
 
 function updateStatusText() {
@@ -962,20 +1026,60 @@ document.addEventListener('click', e => {
 
 $autoAdvanceChk.addEventListener('change', () => { state.autoAdvance = $autoAdvanceChk.checked })
 
+$batchConfInput?.addEventListener('input', drawHistogram)
+
 // ─── Batch confirm ────────────────────────────────────────────────────────────
 
 $batchConfirm.addEventListener('click', async () => {
-  const threshold = 0.90
+  const pct = Math.min(100, Math.max(1, parseInt($batchConfInput?.value) || 80))
+  const threshold = pct / 100
   let count = 0
   state.record?.points.forEach(point => {
     if (isConfirmed(point)) return
     const top = point.annotations?.[0]
     if (top?.score >= threshold) { top.is_confirmed = true; count++ }
   })
-  if (!count) { alert('No unconfirmed points with >= 90% confidence found.'); return }
+  if (!count) { alert(`No unconfirmed points with ≥${pct}% confidence found.`); return }
   await api.save(state.currentId, state.record.points)
   drawOverlay(); renderDetail(); renderProgress(); refreshImageListItem()
-  alert(`Auto-confirmed ${count} point${count > 1 ? 's' : ''} (confidence >= 90%)`)
+  alert(`Auto-confirmed ${count} point${count > 1 ? 's' : ''} (confidence ≥ ${pct}%)`)
+})
+
+// ─── Reclassify current image ─────────────────────────────────────────────────
+
+$btnReclassify?.addEventListener('click', async () => {
+  const record = state.record
+  if (!record) return
+  const confirmedCount = record.points.filter(isConfirmed).length
+  if (confirmedCount > 0) {
+    if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
+  }
+  const { gridMethod, rows, cols } = state.uploadSettings
+  const model = state.uploadSettings.model ?? 't1'
+  $btnReclassify.disabled = true
+  $btnReclassify.textContent = '↺ Reclassifying…'
+  try {
+    const res = await fetch(`/api/images/${record.id}/reclassify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model_name:  model,
+        grid_method: gridMethod ?? 'uniform',
+        grid_rows:   gridMethod === 'noaa' ? 2 : rows,
+        grid_cols:   gridMethod === 'noaa' ? 5 : cols,
+      }),
+    })
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+    state.selectedIdx = -1
+    await loadImage(record.id)
+    const el = $imageList.querySelector(`[data-id="${record.id}"]`)
+    if (el) el.replaceWith(buildImageItem(state.record))
+  } catch (err) {
+    alert(`Reclassify failed: ${err.message ?? String(err)}`)
+  } finally {
+    $btnReclassify.disabled = false
+    $btnReclassify.textContent = '↺ Reclassify current image'
+  }
 })
 
 // ─── Export ───────────────────────────────────────────────────────────────────
@@ -1009,6 +1113,13 @@ if ($settingModel) {
   })
 }
 
+document.querySelector('.preset-btn[data-grid="noaa"]')?.addEventListener('click', function() {
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
+  this.classList.add('active')
+  state.uploadSettings.gridMethod = 'noaa'
+  document.getElementById('custom-grid-row')?.classList.add('hidden')
+})
+
 document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
   if (btn.dataset.rows === 'custom') return
   btn.addEventListener('click', () => {
@@ -1016,6 +1127,7 @@ document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
     const c = parseInt(btn.dataset.cols)
     state.uploadSettings.rows = r
     state.uploadSettings.cols = c
+    state.uploadSettings.gridMethod = 'uniform'
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
     document.getElementById('custom-grid-row')?.classList.add('hidden')
@@ -1029,6 +1141,7 @@ document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
 document.querySelector('.preset-btn[data-rows="custom"]')?.addEventListener('click', function() {
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
   this.classList.add('active')
+  state.uploadSettings.gridMethod = 'uniform'
   document.getElementById('custom-grid-row')?.classList.remove('hidden')
 })
 

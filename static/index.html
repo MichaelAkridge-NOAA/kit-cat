@@ -45,15 +45,16 @@
         <div class="us-row">
           <label class="us-label">Model</label>
           <select id="setting-model" class="us-select">
-            <option value="t3">T3 &mdash; Detailed</option>
-            <option value="t1">T1 &mdash; Coarse</option>
+            <option value="t1" selected>T1 &mdash; Broad benthic functional groups</option>
+            <option value="t3">T3 &mdash; Fine taxonomic classification</option>
           </select>
         </div>
         <div class="us-row">
           <label class="us-label">Grid</label>
           <div class="preset-btns">
+            <button class="preset-btn active" data-grid="noaa" title="Stratified random: 2 rows × 5 cols of cells, 1 random point per cell (10 pts total)">NOAA</button>
             <button class="preset-btn" data-rows="5"  data-cols="5">5&times;5</button>
-            <button class="preset-btn active" data-rows="10" data-cols="10">10&times;10</button>
+            <button class="preset-btn" data-rows="10" data-cols="10">10&times;10</button>
             <button class="preset-btn" data-rows="15" data-cols="15">15&times;15</button>
             <button class="preset-btn" data-rows="20" data-cols="20">20&times;20</button>
             <button class="preset-btn" data-rows="custom">Custom</button>
@@ -66,6 +67,11 @@
             <span class="us-x">x</span>
             <input type="number" id="grid-cols-input" value="10" min="2" max="50" class="us-num">
           </div>
+        </div>
+        <div class="us-row" id="reclassify-row">
+          <button id="btn-reclassify" class="btn-reclassify" disabled title="Regenerate grid and reclassify the current image with the settings above">
+            &#x21BA; Reclassify current image
+          </button>
         </div>
       </div>
 
@@ -119,9 +125,13 @@
             <input type="checkbox" id="auto-advance" checked>
             Auto-advance
           </label>
-          <button id="btn-batch-confirm" class="btn-tool">⚡ Batch confirm ≥90%</button>
+          <button id="btn-batch-confirm" class="btn-tool">⚡ Batch confirm</button>
+            <span class="batch-conf-label">≥</span>
+            <input type="number" id="batch-conf-input" class="batch-conf-input" value="80" min="1" max="100" title="Minimum confidence threshold (%)">
+            <span class="batch-conf-label">%</span>
         </div>
       </div>
+      <div id="cover-summary" class="hidden"></div>
       <div id="canvas-container">
         <canvas id="image-canvas"></canvas>
         <canvas id="overlay-canvas"></canvas>
@@ -169,9 +179,14 @@
           <div class="legend-item"><span class="dot" style="background:#ec4899"></span>Soft Coral</div>
           <div class="legend-item"><span class="dot" style="background:#d97706"></span>Sediment</div>
           <div class="legend-item"><span class="dot" style="background:#60a5fa"></span>Other</div>
-          <div class="legend-item"><span class="dot" style="background:#10b981"></span>Confirmed ✓</div>
+          <div class="legend-item"><span class="dot" style="background:#ffffff;border:1px solid #475569"></span>Confirmed ✓</div>
           <div class="legend-item"><span class="dot" style="background:#6b7280"></span>Unclassified</div>
         </div>
+      </div>
+
+      <div class="legend" id="histogram-panel">
+        <div class="legend-title">Confidence Distribution <span class="histogram-hint">(dashed = threshold)</span></div>
+        <canvas id="conf-histogram" height="40" title="Confidence score distribution — dashed line = batch confirm threshold"></canvas>
       </div>
     </aside>
 
