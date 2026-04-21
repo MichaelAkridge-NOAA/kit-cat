@@ -91,12 +91,12 @@ async function _loadSession(key) {
   })()
 
   if (fromCache) {
-    setModelStatus('loading', `Loading ${key.toUpperCase()} model from cache…`)
+    setModelStatus('loading', `Loading ${key.toUpperCase()} model from browser cache…`)
     arrayBuffer = await fromCache.arrayBuffer()
   } else {
-    setModelStatus('loading', `Downloading ${key.toUpperCase()} model (~42 MB, cached after first load)…`)
+    setModelStatus('loading', `Fetching ${key.toUpperCase()} model from server (~42 MB) — cached after first load…`)
     const res = await fetch(url)
-    if (!res.ok) throw new Error(`HTTP ${res.status} — model file not found at ${url}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status} — model not found at ${url} (has the GitHub Actions deploy run?)`)
     const clone = res.clone()
     arrayBuffer = await res.arrayBuffer()
     // Store in cache in background — don't block inference startup
@@ -173,6 +173,24 @@ function generateGrid(imgW, imgH, nRows, nCols) {
   return pts
 }
 
+// NOAA stratified random: divide into cellRows x cellCols cells, 1 random point per cell
+function generateStratifiedRandom(imgW, imgH, cellRows, cellCols) {
+  const margin  = PATCH_SIZE >> 1
+  const usableW = imgW - 2 * margin
+  const usableH = imgH - 2 * margin
+  const cellW   = usableW / cellCols
+  const cellH   = usableH / cellRows
+  const pts = []
+  for (let r = 0; r < cellRows; r++) {
+    for (let c = 0; c < cellCols; c++) {
+      const x = Math.round(margin + c * cellW + Math.random() * cellW)
+      const y = Math.round(margin + r * cellH + Math.random() * cellH)
+      pts.push({ id: crypto.randomUUID(), row: y, column: x, annotations: [] })
+    }
+  }
+  return pts
+}
+
 // ─── Thumbnail ───────────────────────────────────────────────────────────────
 
 function makeThumbnail(imgEl, size = 80) {
@@ -194,7 +212,7 @@ const state = {
   hoverIdx:      -1,
   isDirty:       false,
   autoAdvance:   true,
-  uploadSettings: { model: 't3', rows: 10, cols: 10 },
+  uploadSettings: { model: 't3', rows: 10, cols: 10, gridMethod: 'noaa' },
   filterState: {
     visibility: 'all',
     labelCodes: new Set(),
@@ -227,7 +245,8 @@ const $statusText         = document.getElementById('model-status-text')
 const $classifyLoading    = document.getElementById('classify-loading')
 const $classifyLoadingTxt = document.getElementById('classify-loading-text')
 const $autoAdvanceChk = document.getElementById('auto-advance')
-const $batchConfirm   = document.getElementById('btn-batch-confirm')
+const $batchConfirm     = document.getElementById('btn-batch-confirm')
+const $batchConfInput   = document.getElementById('batch-conf-input')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -267,6 +286,12 @@ async function uploadFiles(files) {
   for (const file of files) {
     const placeholder = createUploadingItem(file.name)
     $imageList.appendChild(placeholder)
+
+    // Show processing status on canvas/placeholder immediately
+    state._processingFile = file.name
+    _ensureCanvasSized()
+    drawOverlay()
+
     try {
       // 1. Read file
       const dataUrl = await new Promise((res, rej) => {
@@ -283,6 +308,10 @@ async function uploadFiles(files) {
         im.src = dataUrl
       })
       // 3. Build record (all-client state)
+      const { gridMethod } = state.uploadSettings
+      const points = gridMethod === 'noaa'
+        ? generateStratifiedRandom(img.naturalWidth, img.naturalHeight, 2, 5)
+        : generateGrid(img.naturalWidth, img.naturalHeight, rows, cols)
       const record = {
         id:   crypto.randomUUID(),
         name: file.name,
@@ -292,19 +321,33 @@ async function uploadFiles(files) {
         original_image_height: img.naturalHeight,
         patch_size:  PATCH_SIZE,
         model_used:  model,
-        grid_rows:   rows,
-        grid_cols:   cols,
-        points:      generateGrid(img.naturalWidth, img.naturalHeight, rows, cols),
+        grid_rows:   gridMethod === 'noaa' ? 2 : rows,
+        grid_cols:   gridMethod === 'noaa' ? 5 : cols,
+        points,
         num_confirmed: 0,
       }
       state.images.push(record)
       placeholder.replaceWith(buildImageItem(record))
       if (!state.currentId) await loadImage(record.id)
+      delete state._processingFile  // classifyRecord pill takes over
       // 4. Classify in background (non-blocking)
       classifyRecord(record, img).catch(err =>
         console.error('Classification error:', err))
     } catch (err) {
+      delete state._processingFile
       placeholder.replaceWith(buildErrorItem(file.name, err?.message ?? String(err)))
+    }
+  }
+}
+
+// Ensure overlay canvas has usable dimensions even before first image loads
+function _ensureCanvasSized() {
+  if ($overlayCanvas.width === 0) {
+    const rect = $container.getBoundingClientRect()
+    if (rect.width > 0) {
+      $imageCanvas.width  = $overlayCanvas.width  = rect.width
+      $imageCanvas.height = $overlayCanvas.height = rect.height
+      $placeholder.classList.add('hidden')
     }
   }
 }
@@ -578,8 +621,15 @@ function drawOverlay() {
     _drawPatchPreview(state.selectedIdx >= 0 ? state.record?.points[state.selectedIdx] : null)
   }
 
-  // ── Canvas progress pill — shown even while image is loading ───────────────
-  if (state.record && state.classifyingIds.has(state.record.id)) {
+  // ── Canvas status pill — shown even while image is loading ─────────────────
+  const _showProcessingPill  = state._processingFile && !state.classifyingIds.has(state.record?.id)
+  const _showClassifyingPill = state.record && state.classifyingIds.has(state.record.id)
+  const W = $overlayCanvas.width
+  const H = $overlayCanvas.height
+
+  if (_showProcessingPill) {
+    _drawCanvasPill(overlayCtx, W, H, `Processing  ${state._processingFile}…`, null)
+  } else if (_showClassifyingPill) {
     const total = state.record.points.length
     const done  = state.record._classifyDone ?? 0
     const pct   = total > 0 ? Math.round(done / total * 100) : 0
@@ -587,42 +637,41 @@ function drawOverlay() {
     const txt = done === 0
       ? `Loading ${modelLabel} model…  (first load may take 30–60 s)`
       : `Classifying  ${done} / ${total}  (${pct}%)`
-
-    const W = $overlayCanvas.width
-    const H = $overlayCanvas.height
-    overlayCtx.save()
-    overlayCtx.font = 'bold 14px sans-serif'
-    const tw   = overlayCtx.measureText(txt).width
-    const padX = 18, padY = 10, barH = 4
-    const bw   = Math.min(tw + padX * 2, W - 24)
-    const bh   = 14 + padY * 2 + (done > 0 ? barH + 6 : 0)
-    const bx   = Math.round((W - bw) / 2)
-    const by   = Math.round(H * 0.42)   // slightly above centre
-
-    // Backdrop
-    overlayCtx.fillStyle = 'rgba(0,0,0,0.75)'
-    overlayCtx.beginPath()
-    if (overlayCtx.roundRect) overlayCtx.roundRect(bx, by, bw, bh, 8)
-    else overlayCtx.rect(bx, by, bw, bh)
-    overlayCtx.fill()
-
-    // Progress bar (only once classification has started)
-    if (done > 0) {
-      const barY  = by + bh - barH - 6
-      const barXs = bx + 8, barXe = bw - 16
-      overlayCtx.fillStyle = 'rgba(255,255,255,0.18)'
-      overlayCtx.fillRect(barXs, barY, barXe, barH)
-      overlayCtx.fillStyle = '#3b82f6'
-      overlayCtx.fillRect(barXs, barY, Math.round(barXe * pct / 100), barH)
-    }
-
-    // Text
-    overlayCtx.fillStyle    = '#fff'
-    overlayCtx.textAlign    = 'center'
-    overlayCtx.textBaseline = 'top'
-    overlayCtx.fillText(txt, W / 2, by + padY, bw - padX * 2)
-    overlayCtx.restore()
+    _drawCanvasPill(overlayCtx, W, H, txt, done > 0 ? pct : null)
   }
+}
+
+function _drawCanvasPill(ctx, W, H, txt, pct) {
+  const barH = 4
+  ctx.save()
+  ctx.font = 'bold 14px sans-serif'
+  const tw   = ctx.measureText(txt).width
+  const padX = 18, padY = 10
+  const bw   = Math.min(tw + padX * 2, W - 24)
+  const bh   = 14 + padY * 2 + (pct != null ? barH + 6 : 0)
+  const bx   = Math.round((W - bw) / 2)
+  const by   = Math.round(H * 0.42)
+
+  ctx.fillStyle = 'rgba(0,0,0,0.75)'
+  ctx.beginPath()
+  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 8)
+  else ctx.rect(bx, by, bw, bh)
+  ctx.fill()
+
+  if (pct != null) {
+    const barY  = by + bh - barH - 6
+    const barXs = bx + 8, barXe = bw - 16
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'
+    ctx.fillRect(barXs, barY, barXe, barH)
+    ctx.fillStyle = '#3b82f6'
+    ctx.fillRect(barXs, barY, Math.round(barXe * pct / 100), barH)
+  }
+
+  ctx.fillStyle    = '#fff'
+  ctx.textAlign    = 'center'
+  ctx.textBaseline = 'top'
+  ctx.fillText(txt, W / 2, by + padY, bw - padX * 2)
+  ctx.restore()
 }
 
 function _drawTooltipPill(ctx, cx, bottomY, code, name) {
@@ -1240,16 +1289,18 @@ document.addEventListener('click', e => {
 $autoAdvanceChk.addEventListener('change', () => { state.autoAdvance = $autoAdvanceChk.checked })
 
 $batchConfirm.addEventListener('click', () => {
-  const threshold = 0.90
+  const pct = Math.min(100, Math.max(1, parseInt($batchConfInput?.value) || 80))
+  const threshold = pct / 100
   let count = 0
   state.record?.points.forEach(point => {
     if (isConfirmed(point)) return
     const top = point.annotations?.[0]
     if (top?.score >= threshold) { top.is_confirmed = true; count++ }
   })
-  if (!count) { alert('No unconfirmed points with ≥90% confidence found.'); return }
+  if (!count) { alert(`No unconfirmed points with ≥${pct}% confidence found.`); return }
+  drawOverlay(); renderProgress(); refreshImageListItem()
   saveDebounced()
-  alert(`Auto-confirmed ${count} point${count > 1 ? 's' : ''} (confidence ≥ 90%)`)
+  alert(`Auto-confirmed ${count} point${count > 1 ? 's' : ''} (confidence ≥ ${pct}%)`)
 })
 
 // ─── Export buttons ──────────────────────────────────────────────────────────
@@ -1282,11 +1333,19 @@ $settingModel?.addEventListener('change', () => {
   }
 })
 
+document.querySelector('.preset-btn[data-grid="noaa"]')?.addEventListener('click', function() {
+  state.uploadSettings.gridMethod = 'noaa'
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
+  this.classList.add('active')
+  document.getElementById('custom-grid-row')?.classList.add('hidden')
+})
+
 document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
   if (btn.dataset.rows === 'custom') return
   btn.addEventListener('click', () => {
     const r = parseInt(btn.dataset.rows), c = parseInt(btn.dataset.cols)
     state.uploadSettings.rows = r; state.uploadSettings.cols = c
+    state.uploadSettings.gridMethod = 'uniform'
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
     document.getElementById('custom-grid-row')?.classList.add('hidden')
@@ -1297,6 +1356,7 @@ document.querySelectorAll('.preset-btn[data-rows]').forEach(btn => {
 })
 
 document.querySelector('.preset-btn[data-rows="custom"]')?.addEventListener('click', function() {
+  state.uploadSettings.gridMethod = 'uniform'
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
   this.classList.add('active')
   document.getElementById('custom-grid-row')?.classList.remove('hidden')
@@ -1363,13 +1423,14 @@ async function init() {
     return
   }
 
-  // Preload the default model in the background so it's ready before the first upload
+  // Preload both models in parallel so switching between T3/T1 is instant
   const defaultKey = state.uploadSettings.model ?? 't3'
-  if (!_sessionPromises[defaultKey]) {
-    getSession(defaultKey)
-      .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
-      .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
-  }
+  const otherKey   = defaultKey === 't3' ? 't1' : 't3'
+  const loadDefault = getSession(defaultKey)
+    .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
+    .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
+  // Load other model silently in background (don't change status text on completion)
+  getSession(otherKey).catch(() => {})  // failure handled when actually used
 }
 
 init()
