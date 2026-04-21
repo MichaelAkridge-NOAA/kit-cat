@@ -65,10 +65,39 @@ const _sessions = {}
 const _labelsCache = {}
 let   _ortReady = false
 
+const MODEL_CACHE_NAME = 'kitcat-models-v1'
+
 async function getSession(key) {
   if (_sessions[key]) return _sessions[key]
-  setModelStatus('loading', `Loading ${key.toUpperCase()} model (~20 MB)…`)
-  const session = await ort.InferenceSession.create(MODEL_URLS[key], {
+
+  const url = MODEL_URLS[key]
+  let arrayBuffer
+
+  // Try browser Cache API — avoids re-downloading ~42 MB on every visit
+  const fromCache = await (async () => {
+    try {
+      const cache = await caches.open(MODEL_CACHE_NAME)
+      return (await cache.match(url)) || null
+    } catch { return null }
+  })()
+
+  if (fromCache) {
+    setModelStatus('loading', `Loading ${key.toUpperCase()} model from cache…`)
+    arrayBuffer = await fromCache.arrayBuffer()
+  } else {
+    setModelStatus('loading', `Downloading ${key.toUpperCase()} model (~42 MB, cached after first load)…`)
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status} — model file not found`)
+    const clone = res.clone()
+    arrayBuffer = await res.arrayBuffer()
+    // Store in cache in background — don't block inference startup
+    caches.open(MODEL_CACHE_NAME)
+      .then(c => c.put(url, clone))
+      .catch(() => {})  // silently skip if Cache API unavailable (e.g. private browsing)
+  }
+
+  setModelStatus('loading', `Initialising ${key.toUpperCase()} model…`)
+  const session = await ort.InferenceSession.create(arrayBuffer, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   })
@@ -1235,7 +1264,7 @@ async function init() {
   // Configure ONNX WASM path (CDN-served wasm files)
   ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'
   _ortReady = true
-  setModelStatus('ready', 'Browser mode — ready')
+  // Status stays 'loading' (from HTML) while we preload the model below
 
   // Load labels for label picker — fall back to T3_DESCRIPTIONS if JSON not yet exported
   try {
@@ -1250,7 +1279,14 @@ async function init() {
     // Models not yet exported — use hardcoded descriptions as fallback
     state.allLabels = Object.entries(T3_DESCRIPTIONS).map(([code, name]) => ({ code, name, is_custom: false }))
     setModelStatus('ready', 'Browser mode — run export_onnx.py to enable inference')
+    return
   }
+
+  // Preload the default model in the background so it's ready before the first upload
+  const defaultKey = state.uploadSettings.model ?? 't3'
+  getSession(defaultKey)
+    .then(() => setModelStatus('ready', `Browser mode — ${defaultKey.toUpperCase()} ready`))
+    .catch(err => setModelStatus('error', `Model load failed: ${err?.message ?? String(err)}`))
 }
 
 init()
