@@ -115,7 +115,29 @@ main {
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
+
+.btn-demo {
+  width: 100%;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 5px 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  pointer-events: auto;
+}
+.btn-demo:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(59,130,246,0.06);
+}
+.btn-demo:disabled { opacity: 0.5; cursor: default; }
 
 .drop-content {
   border: 2px dashed var(--border);

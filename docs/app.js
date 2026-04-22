@@ -1798,7 +1798,10 @@ document.getElementById('setting-patch-size')?.addEventListener('change', functi
 const $dropZone  = document.getElementById('drop-zone')
 const $fileInput = document.getElementById('file-input')
 
-$dropZone.addEventListener('click', () => $fileInput.click())
+$dropZone.addEventListener('click', e => {
+  // Don't open file picker when demo button is clicked
+  if (!e.target.closest('#btn-demo')) $fileInput.click()
+})
 $fileInput.addEventListener('change', () => { uploadFiles([...$fileInput.files]); $fileInput.value = '' })
 
 $dropZone.addEventListener('dragover',  e => { e.preventDefault(); $dropZone.classList.add('drag-over') })
@@ -1807,6 +1810,64 @@ $dropZone.addEventListener('drop', e => {
   e.preventDefault(); $dropZone.classList.remove('drag-over')
   const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))
   if (files.length) uploadFiles(files)
+})
+
+// ─── Demo loader ─────────────────────────────────────────────────────────────
+
+async function loadDemo() {
+  if (!_ortReady) {
+    alert('ONNX Runtime is not ready yet — please wait a moment and try again.')
+    return
+  }
+  const btn = document.getElementById('btn-demo')
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
+  try {
+    const resp = await fetch('assets/example_image.JPG')
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const blob = await resp.blob()
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = e => res(e.target.result)
+      r.onerror = rej
+      r.readAsDataURL(blob)
+    })
+    const img = await new Promise((res, rej) => {
+      const im = new Image()
+      im.onload = () => res(im)
+      im.onerror = rej
+      im.src = dataUrl
+    })
+    const patchSize = 224
+    const rows = 20, cols = 20
+    const points = generateGrid(img.naturalWidth, img.naturalHeight, rows, cols, patchSize)
+    const record = {
+      id:   crypto.randomUUID(),
+      name: 'example_image.JPG',
+      image: dataUrl,
+      thumbnail: makeThumbnail(img),
+      original_image_width:  img.naturalWidth,
+      original_image_height: img.naturalHeight,
+      patch_size:  patchSize,
+      model_used:  't1',
+      grid_rows:   rows,
+      grid_cols:   cols,
+      points,
+      num_confirmed: 0,
+    }
+    state.images.push(record)
+    $imageList.appendChild(buildImageItem(record))
+    await loadImage(record.id)
+    classifyRecord(record, img).catch(err => console.error('Demo classification error:', err))
+  } catch (err) {
+    alert(`Could not load demo image: ${err.message}`)
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔬 Try Example' }
+  }
+}
+
+document.getElementById('btn-demo')?.addEventListener('click', e => {
+  e.stopPropagation()  // prevent drop-zone click from opening file picker
+  loadDemo()
 })
 
 // ─── Resize observer ─────────────────────────────────────────────────────────
