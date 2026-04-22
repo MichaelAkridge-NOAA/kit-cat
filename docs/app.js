@@ -1276,11 +1276,40 @@ function renderCoverSummary() {
   if (!sorted.length) { $coverSummary.innerHTML = ''; $coverSummary.classList.add('hidden'); return }
   const total = pts.length
   $coverSummary.classList.remove('hidden')
-  const chips = sorted.slice(0, 12).map(([code, n]) =>
-    `<span class="cover-chip"><span class="cover-code">${code}</span><span class="cover-pct">${Math.round(n / total * 100)}%</span></span>`
-  ).join('')
-  const extra = sorted.length > 12 ? `<span class="cover-more">+${sorted.length - 12} more</span>` : ''
-  $coverSummary.innerHTML = '<span class="cover-label">Cover:</span>' + chips + extra
+
+  const activeCodes = state.filterState.labelCodes
+  const chips = sorted.map(([code, n]) => {
+    const pct      = Math.round(n / total * 100)
+    const cat      = T3_CATEGORY[code] ?? T1_CATEGORY[code]
+    const dotColor = CAT_COLOR[cat] ?? '#60a5fa'
+    const isActive = activeCodes.size === 1 && activeCodes.has(code)
+    const name     = T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
+    return `<button class="cover-chip${isActive ? ' active' : ''}" data-code="${code}" title="${name} — click to filter">
+      <span class="cover-dot" style="background:${dotColor}"></span>
+      <span class="cover-code">${code}</span>
+      <span class="cover-pct">${pct}%</span>
+    </button>`
+  }).join('')
+  $coverSummary.innerHTML = '<span class="cover-label">Benthic Cover:</span>' + chips
+
+  $coverSummary.querySelectorAll('.cover-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.dataset.code
+      const alreadyActive = state.filterState.labelCodes.size === 1 && state.filterState.labelCodes.has(code)
+      if (alreadyActive) {
+        // toggle off — clear label filter
+        state.filterState.labelCodes.clear()
+      } else {
+        // activate this single code
+        state.filterState.labelCodes.clear()
+        state.filterState.labelCodes.add(code)
+      }
+      updateLabelFilterBadge()
+      refreshLabelFilterList()
+      drawOverlay()
+      renderCoverSummary()  // re-render to update active state
+    })
+  })
 }
 
 function renderProgress() {
@@ -1430,7 +1459,7 @@ function refreshLabelFilterList() {
     chk.addEventListener('change', () => {
       if (chk.checked) state.filterState.labelCodes.add(chk.value)
       else state.filterState.labelCodes.delete(chk.value)
-      updateLabelFilterBadge(); drawOverlay()
+      updateLabelFilterBadge(); drawOverlay(); renderCoverSummary()
     })
   })
 }
