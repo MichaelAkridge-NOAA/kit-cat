@@ -1290,25 +1290,50 @@ function renderCoverSummary() {
       <span class="cover-pct">${pct}%</span>
     </button>`
   }).join('')
-  $coverSummary.innerHTML = '<span class="cover-label">Benthic Cover:</span>' + chips
+  // Inline confirm button shown when a single chip is active
+  const activeCode = activeCodes.size === 1 ? [...activeCodes][0] : null
+  let confirmBtn = ''
+  if (activeCode) {
+    const unconfirmedCount = (state.record?.points ?? []).filter(p =>
+      p.annotations?.[0]?.code === activeCode && !isConfirmed(p)
+    ).length
+    if (unconfirmedCount > 0) {
+      confirmBtn = `<button class="cover-confirm-btn" data-code="${activeCode}" title="Confirm all unconfirmed ${activeCode} points">Confirm ${activeCode} (${unconfirmedCount})</button>`
+    }
+  }
+
+  $coverSummary.innerHTML = '<span class="cover-label">Benthic Cover:</span>' + chips + confirmBtn
 
   $coverSummary.querySelectorAll('.cover-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       const code = btn.dataset.code
       const alreadyActive = state.filterState.labelCodes.size === 1 && state.filterState.labelCodes.has(code)
       if (alreadyActive) {
-        // toggle off — clear label filter
         state.filterState.labelCodes.clear()
       } else {
-        // activate this single code
         state.filterState.labelCodes.clear()
         state.filterState.labelCodes.add(code)
       }
       updateLabelFilterBadge()
       refreshLabelFilterList()
       drawOverlay()
-      renderCoverSummary()  // re-render to update active state
+      renderCoverSummary()
     })
+  })
+
+  $coverSummary.querySelector('.cover-confirm-btn')?.addEventListener('click', () => {
+    const code = activeCode
+    let count = 0
+    state.record?.points.forEach(point => {
+      if (point.annotations?.[0]?.code === code && !isConfirmed(point)) {
+        point.annotations[0].is_confirmed = true
+        count++
+      }
+    })
+    if (count) {
+      drawOverlay(); renderProgress(); refreshImageListItem(); saveDebounced()
+    }
+    renderCoverSummary()
   })
 }
 
