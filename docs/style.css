@@ -350,6 +350,27 @@ main {
 }
 .toggle-label input { cursor: pointer; accent-color: var(--accent); }
 
+.overlay-mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.overlay-mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.overlay-mode-btn + .overlay-mode-btn { border-left: 1px solid var(--border); }
+.overlay-mode-btn.active  { background: var(--bg-elevated); color: var(--text); }
+.overlay-mode-btn:hover:not(.active) { color: var(--text); }
+
 .btn-tool {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

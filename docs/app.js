@@ -290,6 +290,7 @@ const state = {
   _panning:   false,
   _panStart:  null,
   _zoomLocked: false,
+  overlayMode: 'overview',
   classifyingIds: new Set(),
 }
 
@@ -670,91 +671,13 @@ function drawOverlay() {
 
   if (t && state.record?.points.length) {
     const patchSize = state.record.patch_size ?? PATCH_SIZE
-    // patchHalf: exact screen-space half-width of the actual model crop — no clamping
-    const patchHalf = getPointScreenHalf(t)
-    // dotR: clamped radius for the center marker dot (stays clickable when zoomed out)
-    const dotR    = Math.max(3.5, Math.min(14, patchHalf * 0.18))
-    // borderW: adaptive stroke width — stays crisp at any zoom level
-    const borderW = Math.max(1, Math.min(3, 2 / t.scale))
-    const visible = new Set(filteredPoints().map(p => p.id))
-
-    // Track selected point screen position so we can draw dim mask + tooltip last
-    let selX = null, selY = null, selHalf = null, selCode = null, selName = null
-
-    state.record.points.forEach((point, idx) => {
-      if (!visible.has(point.id)) return
-      const x     = t.offsetX + point.column * t.scale
-      const y     = t.offsetY + point.row    * t.scale
-      const color  = getPointColor(point)
-      const isSel  = idx === state.selectedIdx
-      const isHov  = idx === state.hoverIdx
-      // All boxes use true patch size; selected point gets a slightly larger fill for emphasis
-      const half   = isSel ? patchHalf * 1.04 : patchHalf
-
-      // Subtle fill
-      overlayCtx.shadowBlur  = isSel ? 18 : 0
-      overlayCtx.shadowColor = color
-      overlayCtx.fillStyle   = color
-      overlayCtx.globalAlpha = isConfirmed(point) ? 0.15 : 0.09
-      overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
-      overlayCtx.globalAlpha = 1.0
-      overlayCtx.shadowBlur  = 0
-
-      // Double-stroke border: dark halo outer + colour inner — visible on any substrate
-      overlayCtx.lineWidth   = borderW + 2
-      overlayCtx.strokeStyle = 'rgba(0,0,0,0.65)'
-      overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
-      overlayCtx.lineWidth   = borderW
-      overlayCtx.strokeStyle = color
-      overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
-
-      // Center dot — clamped so it stays visible when zoomed far out
-      overlayCtx.beginPath()
-      overlayCtx.arc(x, y, Math.max(2.5, dotR), 0, Math.PI * 2)
-      overlayCtx.fillStyle   = color
-      overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
-      overlayCtx.fill()
-      overlayCtx.globalAlpha = 1.0
-
-      if (isSel) {
-        // White ring just outside the patch border
-        overlayCtx.strokeStyle = 'rgba(255,255,255,0.80)'
-        overlayCtx.lineWidth   = 2
-        overlayCtx.strokeRect(x - half - 4, y - half - 4, (half + 4) * 2, (half + 4) * 2)
-        // Store for deferred dim-mask + tooltip draw
-        selX = x; selY = y; selHalf = half
-        const ann = point.annotations?.[0]
-        selCode = ann?.code ?? '?'
-        selName = ann?.ba_gr_label ?? ''
-      } else if (isHov) {
-        // Hover highlight ring
-        overlayCtx.strokeStyle = 'rgba(255,255,255,0.45)'
-        overlayCtx.lineWidth   = 1.5
-        overlayCtx.strokeRect(x - half - 3, y - half - 3, (half + 3) * 2, (half + 3) * 2)
-        const ann  = point.annotations?.[0]
-        _drawTooltipPill(overlayCtx, x, y - half - 5, ann?.code ?? '?', '')
-      }
-    })
-
-    // ── Dim mask with cut-out for selected patch ──────────────────────────────
-    if (selX !== null) {
-      const gap = 6  // px gap between patch border and dim edge
-      overlayCtx.save()
-      overlayCtx.beginPath()
-      overlayCtx.rect(0, 0, $overlayCanvas.width, $overlayCanvas.height)
-      overlayCtx.rect(selX - selHalf - gap, selY - selHalf - gap,
-                      (selHalf + gap) * 2, (selHalf + gap) * 2)
-      overlayCtx.fillStyle = 'rgba(0,0,0,0.38)'
-      overlayCtx.fill('evenodd')
-      overlayCtx.restore()
-      // Tooltip drawn last so it's above the dim mask
-      _drawTooltipPill(overlayCtx, selX, selY - selHalf - 5, selCode, selName)
+    const visible   = new Set(filteredPoints().map(p => p.id))
+    if (state.overlayMode === 'focus') {
+      _drawOverlayFocus(t, patchSize, visible)
+    } else {
+      _drawOverlayOverview(t, patchSize, visible)
     }
-
-    // Sidebar patch preview
     _drawPatchPreview(state.selectedIdx >= 0 ? state.record?.points[state.selectedIdx] : null)
-
-    // ── Zoom / patch HUD ─────────────────────────────────────────────────────
     _drawZoomHud(overlayCtx, $overlayCanvas.width, $overlayCanvas.height, patchSize)
   }
 
@@ -809,6 +732,114 @@ function _drawCanvasPill(ctx, W, H, txt, pct) {
   ctx.textBaseline = 'top'
   ctx.fillText(txt, W / 2, by + padY, bw - padX * 2)
   ctx.restore()
+}
+
+// ── Overview mode: compact clamped-radius squares — original appearance ──────
+function _drawOverlayOverview(t, patchSize, visible) {
+  const sparse = state.record.points.length <= 12
+  const r = Math.max(sparse ? 7 : 4, Math.min(sparse ? 16 : 11, (patchSize / 2) * t.scale * (sparse ? 0.55 : 0.35)))
+  state.record.points.forEach((point, idx) => {
+    if (!visible.has(point.id)) return
+    const x     = t.offsetX + point.column * t.scale
+    const y     = t.offsetY + point.row    * t.scale
+    const color  = getPointColor(point)
+    const isSel  = idx === state.selectedIdx
+    const isHov  = idx === state.hoverIdx
+    const half   = isSel ? r * 1.7 : r + (isHov && !isSel ? 2 : 0)
+    overlayCtx.shadowBlur  = isSel ? 18 : 0
+    overlayCtx.shadowColor = color
+    overlayCtx.fillStyle   = color
+    overlayCtx.globalAlpha = isConfirmed(point) ? 0.18 : 0.12
+    overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
+    overlayCtx.globalAlpha = 1.0
+    overlayCtx.shadowBlur  = 0
+    overlayCtx.strokeStyle = color
+    overlayCtx.lineWidth   = isSel ? 2.5 : 1.5
+    overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
+    overlayCtx.beginPath()
+    overlayCtx.arc(x, y, 2, 0, Math.PI * 2)
+    overlayCtx.fillStyle   = color
+    overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
+    overlayCtx.fill()
+    overlayCtx.globalAlpha = 1.0
+    if (isSel) {
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.75)'
+      overlayCtx.lineWidth   = 2
+      overlayCtx.strokeRect(x - half - 5, y - half - 5, (half + 5) * 2, (half + 5) * 2)
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.25)'
+      overlayCtx.lineWidth   = 1.5
+      overlayCtx.strokeRect(x - half - 11, y - half - 11, (half + 11) * 2, (half + 11) * 2)
+    }
+    if (isSel || isHov) {
+      const ann  = point.annotations?.[0]
+      const code = ann?.code ?? '?'
+      const name = isSel ? (ann?.ba_gr_label ?? '') : ''
+      _drawTooltipPill(overlayCtx, x, y - half - 5, code, name)
+    }
+  })
+}
+
+// ── Focus mode: exact patch boxes, double-stroke halo, dim mask ───────────────
+function _drawOverlayFocus(t, patchSize, visible) {
+  const patchHalf = getPointScreenHalf(t)
+  const dotR    = Math.max(3.5, Math.min(14, patchHalf * 0.18))
+  const borderW = Math.max(1, Math.min(3, 2 / t.scale))
+  let selX = null, selY = null, selHalf = null, selCode = null, selName = null
+  state.record.points.forEach((point, idx) => {
+    if (!visible.has(point.id)) return
+    const x     = t.offsetX + point.column * t.scale
+    const y     = t.offsetY + point.row    * t.scale
+    const color  = getPointColor(point)
+    const isSel  = idx === state.selectedIdx
+    const isHov  = idx === state.hoverIdx
+    const half   = isSel ? patchHalf * 1.04 : patchHalf
+    overlayCtx.shadowBlur  = isSel ? 18 : 0
+    overlayCtx.shadowColor = color
+    overlayCtx.fillStyle   = color
+    overlayCtx.globalAlpha = isConfirmed(point) ? 0.15 : 0.09
+    overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
+    overlayCtx.globalAlpha = 1.0
+    overlayCtx.shadowBlur  = 0
+    overlayCtx.lineWidth   = borderW + 2
+    overlayCtx.strokeStyle = 'rgba(0,0,0,0.65)'
+    overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
+    overlayCtx.lineWidth   = borderW
+    overlayCtx.strokeStyle = color
+    overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
+    overlayCtx.beginPath()
+    overlayCtx.arc(x, y, Math.max(2.5, dotR), 0, Math.PI * 2)
+    overlayCtx.fillStyle   = color
+    overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
+    overlayCtx.fill()
+    overlayCtx.globalAlpha = 1.0
+    if (isSel) {
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.80)'
+      overlayCtx.lineWidth   = 2
+      overlayCtx.strokeRect(x - half - 4, y - half - 4, (half + 4) * 2, (half + 4) * 2)
+      selX = x; selY = y; selHalf = half
+      const ann = point.annotations?.[0]
+      selCode = ann?.code ?? '?'
+      selName = ann?.ba_gr_label ?? ''
+    } else if (isHov) {
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.45)'
+      overlayCtx.lineWidth   = 1.5
+      overlayCtx.strokeRect(x - half - 3, y - half - 3, (half + 3) * 2, (half + 3) * 2)
+      const ann  = point.annotations?.[0]
+      _drawTooltipPill(overlayCtx, x, y - half - 5, ann?.code ?? '?', '')
+    }
+  })
+  if (selX !== null) {
+    const gap = 6
+    overlayCtx.save()
+    overlayCtx.beginPath()
+    overlayCtx.rect(0, 0, $overlayCanvas.width, $overlayCanvas.height)
+    overlayCtx.rect(selX - selHalf - gap, selY - selHalf - gap,
+                    (selHalf + gap) * 2, (selHalf + gap) * 2)
+    overlayCtx.fillStyle = 'rgba(0,0,0,0.38)'
+    overlayCtx.fill('evenodd')
+    overlayCtx.restore()
+    _drawTooltipPill(overlayCtx, selX, selY - selHalf - 5, selCode, selName)
+  }
 }
 
 // Bottom-left HUD showing current zoom level, patch size, and key hints.
@@ -1531,6 +1562,17 @@ document.addEventListener('keydown', e => {
       selectPoint(-1)
       break
   }
+})
+
+// ─── Overlay mode toggle ─────────────────────────────────────────────────────
+
+document.querySelectorAll('.overlay-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.overlayMode = btn.dataset.mode
+    document.querySelectorAll('.overlay-mode-btn').forEach(b =>
+      b.classList.toggle('active', b === btn))
+    drawOverlay()
+  })
 })
 
 // ─── Visibility filter buttons ────────────────────────────────────────────────
