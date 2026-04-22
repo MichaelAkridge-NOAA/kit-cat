@@ -1,35 +1,59 @@
 'use strict'
 
 // ─── Category → color mapping ────────────────────────────────────────────────
+// Labels sourced from YOLO models (see labels_t3.json and labels_t1.json)
+// See: https://huggingface.co/NMFS-OSI/yolo11m-cls-noaa-pacific-benthic-cover-t3
 
 const T3_DESCRIPTIONS = {
-  TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURF:'Turf Alga',
-  EMA:'Encrusting Macroalgae', HALI:'Halimeda spp.', DICO:'Dictyota spp.',
-  LOBO:'Lobophora spp.', MA:'Macroalga',
-  CCAH:'Crustose Coralline Algae (Healthy)', CCAR:'Crustose Coralline Algae (Rubble)', CCA:'Coralline Alga',
-  POCS:'Pocillopora spp.', MOEN:'Montipora (encrusting)', MOSP:'Montipora (submassive)',
-  MOBR:'Montipora (branching)', PESP:'Porites (encrusting)', POMA:'Porites (massive)',
-  POBR:'Porites (branching)', ACBR:'Acropora (branching)', ACTA:'Acropora (tabular)',
-  ACEN:'Acropora (encrusting)', ACDI:'Acropora (digitate)', PASP:'Pavona spp.',
-  FUSP:'Fungia spp.', LEPT:'Leptastrea spp.', FASP:'Favites spp.',
-  PLSP:'Platygyra spp.', PLER:'Platygyra erosa', LOBS:'Lobophyllia spp.',
-  GAST:'Galaxea spp.', HCON:'Hard Coral (unidentified)', CORAL:'Coral',
-  OCTO:'Octocoral', ZOAN:'Zoanthids', SC:'Soft Coral',
-  SAND:'Sand', RUB:'Rubble', HBON:'Hard Bottom (bare)', HBOA:'Hard Bottom (algae)', SED:'Sediment',
-  SPON:'Sponge', MF:'Mobile Fauna', I:'Sessile Invertebrate', INVERT:'Sessile Invertebrate', UNK:'Unknown',
+  ACAS:'Acanthastrea sp', ACBR:'Acropora (branching)', ACTA:'Acropora (tabular)',
+  ASPP:'Asparagopsis sp', ASSP:'Astreopora sp', ASTS:'Astrea spp',
+  BGMA:'Blue-green macroalga', BRMA:'Brown macroalgae', CAUL:'Caulerpa sp',
+  CCAH:'Crustose Coralline Algae (Healthy)', CCAR:'Crustose Coralline Algae (Rubble)',
+  CMOR:'Corallimorph', COSP:'Coscinaraea sp', CYPS:'Cyphastrea sp',
+  DICO:'Dictyota spp.', DICT:'Dictyosphaeria sp', DISP:'Diploastrea sp',
+  ECHP:'Echinopora sp', EMA:'Encrusting Macroalgae', ENC:'Encrusting hard coral',
+  FASP:'Favites spp.', FAVS:'Favites sp', FINE:'Fine sediment',
+  FOL:'Foliose hard coral', FREE:'Free-living hard coral', FUSP:'Fungia spp.',
+  GASP:'Galaxea sp', GOAL:'Goniopora/Alveopora sp', GONS:'Goniastrea sp',
+  GRMA:'Green macroalgae', HALI:'Halimeda spp.', HCOE:'Heliopora sp',
+  HYSP:'Hydnophora sp', ISSP:'Isopora sp', LEPT:'Leptastrea spp.',
+  LOBO:'Lobophora spp.', LOBS:'Lobophyllia spp.', LPHY:'Leptoria sp',
+  MICR:'Microdictyon sp', MISP:'Millepora sp', MOBF:'Mobile fauna',
+  MOBR:'Montipora (branching)', MOEN:'Montipora (encrusting)', MOFO:'Montipora foliose',
+  OCTO:'Octocoral', PADI:'Padina sp', PAEN:'Pavona encrusting',
+  PAMA:'Pavona massive', PESP:'Porites (encrusting)', PHSP:'Phymastrea sp',
+  PLSP:'Platygyra spp.', POBR:'Porites (branching)', POCS:'Pocillopora spp.',
+  POEN:'Porites encrusting', POFO:'Porites foliose', POMA:'Porites (massive)',
+  PSSP:'Psammocora sp', RDMA:'Red macroalgae', SAND:'Sand',
+  SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
+  TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
+  UPMA:'Upright macroalga', ZO:'Zoanthid',
 }
 
 const T3_CATEGORY = {
-  POCS:'coral', MOEN:'coral', MOSP:'coral', MOBR:'coral', PESP:'coral', POMA:'coral',
-  POBR:'coral', ACBR:'coral', ACTA:'coral', ACEN:'coral', ACDI:'coral', PASP:'coral',
-  FUSP:'coral', LEPT:'coral', FASP:'coral', PLSP:'coral', PLER:'coral', LOBS:'coral',
-  GAST:'coral', HCON:'coral', CORAL:'coral',
-  CCAH:'cca', CCAR:'cca', CCA:'cca',
-  TURFH:'turf', TURFR:'turf', TURF:'turf',
-  EMA:'macro', HALI:'macro', DICO:'macro', LOBO:'macro', MA:'macro',
-  OCTO:'soft', ZOAN:'soft', SC:'soft',
-  SAND:'sed', RUB:'sed', SED:'sed', HBON:'sed', HBOA:'sed',
-  SPON:'other', MF:'other', I:'other', INVERT:'other', UNK:'other',
+  // Hard Corals (38 codes)
+  ACAS:'coral', ACBR:'coral', ACTA:'coral', ASSP:'coral', ASTS:'coral',
+  COSP:'coral', CYPS:'coral', DISP:'coral', ECHP:'coral', ENC:'coral',
+  FASP:'coral', FAVS:'coral', FOL:'coral', FREE:'coral', FUSP:'coral',
+  GASP:'coral', GOAL:'coral', GONS:'coral', HYSP:'coral', ISSP:'coral',
+  LEPT:'coral', LOBS:'coral', LPHY:'coral', MOBR:'coral', MOEN:'coral',
+  MOFO:'coral', PAEN:'coral', PAMA:'coral', PESP:'coral', PHSP:'coral',
+  PLSP:'coral', POBR:'coral', POCS:'coral', POEN:'coral', POFO:'coral',
+  POMA:'coral', PSSP:'coral', STYS:'coral',
+  // Crustose Coralline Algae (2 codes)
+  CCAH:'cca', CCAR:'cca',
+  // Turf Algae (2 codes)
+  TURFH:'turf', TURFR:'turf',
+  // Macroalgae (15 codes)
+  ASPP:'macro', BGMA:'macro', BRMA:'macro', CAUL:'macro', DICO:'macro',
+  DICT:'macro', EMA:'macro', GRMA:'macro', HALI:'macro', LOBO:'macro',
+  PADI:'macro', RDMA:'macro', TURS:'macro', UPMA:'macro', MICR:'macro',
+  // Soft Corals & Cnidarians (5 codes)
+  CMOR:'soft', HCOE:'soft', MISP:'soft', OCTO:'soft', ZO:'soft',
+  // Sediment (2 codes)
+  FINE:'sed', SAND:'sed',
+  // Other (5 codes)
+  MOBF:'other', SP:'other', TUN:'other',
 }
 
 const CAT_COLOR = {
@@ -37,11 +61,24 @@ const CAT_COLOR = {
   soft:  '#ec4899', sed: '#d97706', other: '#60a5fa',
 }
 
+// T1 (8 broad functional groups) map to the same color categories as T3
+const T1_CATEGORY = {
+  CORAL:'coral', CCA:'cca', TURF:'turf', MA:'macro',
+  SC:'soft', SED:'sed', MF:'other', I:'other',
+}
+
+// Human-readable names for T1 codes (used in label picker)
+const T1_DESCRIPTIONS = {
+  CCA:'Crustose Coralline Algae', CORAL:'Hard Coral', I:'Sessile Invertebrate',
+  MA:'Macroalgae', MF:'Mobile Fauna', SC:'Soft Coral', SED:'Sediment', TURF:'Turf Algae',
+}
+
 function getPointColor(point) {
   const ann = point.annotations?.[0]
   if (!ann) return '#6b7280'
   if (ann.is_confirmed) return '#ffffff'
-  return CAT_COLOR[T3_CATEGORY[ann.code]] ?? '#60a5fa'
+  const cat = T3_CATEGORY[ann.code] ?? T1_CATEGORY[ann.code]
+  return CAT_COLOR[cat] ?? '#60a5fa'
 }
 
 function isConfirmed(p)    { return !!p.annotations?.[0]?.is_confirmed }
@@ -814,7 +851,9 @@ function filteredPoints() {
   let pts = state.record.points
   const { visibility, labelCodes, minConf, sortBy } = state.filterState
 
-  if (visibility === 'unclassified') {
+  if (visibility === 'confirmed') {
+    pts = pts.filter(isConfirmed)
+  } else if (visibility === 'unclassified') {
     pts = pts.filter(isUnclassified)
   } else if (visibility === 'unconfirmed') {
     pts = pts.filter(p => !isConfirmed(p))
@@ -1608,11 +1647,15 @@ async function init() {
     const t1codes = await getLabelCodes('t1').catch(() => [])
     t1codes.forEach(code => {
       if (!state.allLabels.find(l => l.code === code))
-        state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
+        state.allLabels.push({ code, name: T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
   } catch {
     // Models not yet exported — use hardcoded descriptions as fallback
-    state.allLabels = Object.entries(T3_DESCRIPTIONS).map(([code, name]) => ({ code, name, is_custom: false }))
+    const t3entries = Object.entries(T3_DESCRIPTIONS).map(([code, name]) => ({ code, name, is_custom: false }))
+    const t1entries = Object.entries(T1_DESCRIPTIONS)
+      .filter(([code]) => !T3_DESCRIPTIONS[code])
+      .map(([code, name]) => ({ code, name, is_custom: false }))
+    state.allLabels = [...t3entries, ...t1entries]
     setModelStatus('ready', 'Browser mode — run export_onnx.py to enable inference')
     return
   }
