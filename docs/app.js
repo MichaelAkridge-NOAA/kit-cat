@@ -289,6 +289,7 @@ const state = {
   loadedImg:  null,
   _panning:   false,
   _panStart:  null,
+  _zoomLocked: false,
   classifyingIds: new Set(),
 }
 
@@ -628,6 +629,12 @@ function getTransform() {
   return { scale, offsetX, offsetY }
 }
 
+// Returns the exact screen-space half-width of the patch crop at the current transform.
+// Single source of truth shared by drawOverlay and hitTest.
+function getPointScreenHalf(t) {
+  return ((state.record?.patch_size ?? PATCH_SIZE) / 2) * t.scale
+}
+
 function resetView() {
   state.zoom = 1.0; state.panX = 0; state.panY = 0
   resizeAndDraw()
@@ -663,9 +670,16 @@ function drawOverlay() {
 
   if (t && state.record?.points.length) {
     const patchSize = state.record.patch_size ?? PATCH_SIZE
-    const sparse = state.record.points.length <= 12
-    const r = Math.max(sparse ? 7 : 4, Math.min(sparse ? 16 : 11, (patchSize / 2) * t.scale * (sparse ? 0.55 : 0.35)))
+    // patchHalf: exact screen-space half-width of the actual model crop — no clamping
+    const patchHalf = getPointScreenHalf(t)
+    // dotR: clamped radius for the center marker dot (stays clickable when zoomed out)
+    const dotR    = Math.max(3.5, Math.min(14, patchHalf * 0.18))
+    // borderW: adaptive stroke width — stays crisp at any zoom level
+    const borderW = Math.max(1, Math.min(3, 2 / t.scale))
     const visible = new Set(filteredPoints().map(p => p.id))
+
+    // Track selected point screen position so we can draw dim mask + tooltip last
+    let selX = null, selY = null, selHalf = null, selCode = null, selName = null
 
     state.record.points.forEach((point, idx) => {
       if (!visible.has(point.id)) return
@@ -674,51 +688,74 @@ function drawOverlay() {
       const color  = getPointColor(point)
       const isSel  = idx === state.selectedIdx
       const isHov  = idx === state.hoverIdx
-      const half   = isSel ? r * 1.7 : r + (isHov && !isSel ? 2 : 0)
+      // All boxes use true patch size; selected point gets a slightly larger fill for emphasis
+      const half   = isSel ? patchHalf * 1.04 : patchHalf
 
-      // Square: subtle fill so points are visible when zoomed out
+      // Subtle fill
       overlayCtx.shadowBlur  = isSel ? 18 : 0
       overlayCtx.shadowColor = color
       overlayCtx.fillStyle   = color
-      overlayCtx.globalAlpha = isConfirmed(point) ? 0.18 : 0.12
+      overlayCtx.globalAlpha = isConfirmed(point) ? 0.15 : 0.09
       overlayCtx.fillRect(x - half, y - half, half * 2, half * 2)
       overlayCtx.globalAlpha = 1.0
       overlayCtx.shadowBlur  = 0
 
-      // Square outline
+      // Double-stroke border: dark halo outer + colour inner — visible on any substrate
+      overlayCtx.lineWidth   = borderW + 2
+      overlayCtx.strokeStyle = 'rgba(0,0,0,0.65)'
+      overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
+      overlayCtx.lineWidth   = borderW
       overlayCtx.strokeStyle = color
-      overlayCtx.lineWidth   = isSel ? 2.5 : 1.5
       overlayCtx.strokeRect(x - half, y - half, half * 2, half * 2)
 
-      // Tiny center dot for precise location
+      // Center dot — clamped so it stays visible when zoomed far out
       overlayCtx.beginPath()
-      overlayCtx.arc(x, y, 2, 0, Math.PI * 2)
+      overlayCtx.arc(x, y, Math.max(2.5, dotR), 0, Math.PI * 2)
       overlayCtx.fillStyle   = color
       overlayCtx.globalAlpha = isConfirmed(point) ? 1.0 : 0.85
       overlayCtx.fill()
       overlayCtx.globalAlpha = 1.0
 
       if (isSel) {
-        // Inner selection square ring
-        overlayCtx.strokeStyle = 'rgba(255,255,255,0.75)'
+        // White ring just outside the patch border
+        overlayCtx.strokeStyle = 'rgba(255,255,255,0.80)'
         overlayCtx.lineWidth   = 2
-        overlayCtx.strokeRect(x - half - 5, y - half - 5, (half + 5) * 2, (half + 5) * 2)
-        // Outer dim square ring
-        overlayCtx.strokeStyle = 'rgba(255,255,255,0.25)'
+        overlayCtx.strokeRect(x - half - 4, y - half - 4, (half + 4) * 2, (half + 4) * 2)
+        // Store for deferred dim-mask + tooltip draw
+        selX = x; selY = y; selHalf = half
+        const ann = point.annotations?.[0]
+        selCode = ann?.code ?? '?'
+        selName = ann?.ba_gr_label ?? ''
+      } else if (isHov) {
+        // Hover highlight ring
+        overlayCtx.strokeStyle = 'rgba(255,255,255,0.45)'
         overlayCtx.lineWidth   = 1.5
-        overlayCtx.strokeRect(x - half - 11, y - half - 11, (half + 11) * 2, (half + 11) * 2)
-      }
-
-      if (isSel || isHov) {
+        overlayCtx.strokeRect(x - half - 3, y - half - 3, (half + 3) * 2, (half + 3) * 2)
         const ann  = point.annotations?.[0]
-        const code = ann?.code ?? '?'
-        const name = isSel ? (ann?.ba_gr_label ?? '') : ''
-        _drawTooltipPill(overlayCtx, x, y - half - 5, code, name)
+        _drawTooltipPill(overlayCtx, x, y - half - 5, ann?.code ?? '?', '')
       }
     })
 
+    // ── Dim mask with cut-out for selected patch ──────────────────────────────
+    if (selX !== null) {
+      const gap = 6  // px gap between patch border and dim edge
+      overlayCtx.save()
+      overlayCtx.beginPath()
+      overlayCtx.rect(0, 0, $overlayCanvas.width, $overlayCanvas.height)
+      overlayCtx.rect(selX - selHalf - gap, selY - selHalf - gap,
+                      (selHalf + gap) * 2, (selHalf + gap) * 2)
+      overlayCtx.fillStyle = 'rgba(0,0,0,0.38)'
+      overlayCtx.fill('evenodd')
+      overlayCtx.restore()
+      // Tooltip drawn last so it's above the dim mask
+      _drawTooltipPill(overlayCtx, selX, selY - selHalf - 5, selCode, selName)
+    }
+
     // Sidebar patch preview
     _drawPatchPreview(state.selectedIdx >= 0 ? state.record?.points[state.selectedIdx] : null)
+
+    // ── Zoom / patch HUD ─────────────────────────────────────────────────────
+    _drawZoomHud(overlayCtx, $overlayCanvas.width, $overlayCanvas.height, patchSize)
   }
 
   // ── Canvas status pill — shown even while image is loading ─────────────────
@@ -771,6 +808,29 @@ function _drawCanvasPill(ctx, W, H, txt, pct) {
   ctx.textAlign    = 'center'
   ctx.textBaseline = 'top'
   ctx.fillText(txt, W / 2, by + padY, bw - padX * 2)
+  ctx.restore()
+}
+
+// Bottom-left HUD showing current zoom level, patch size, and key hints.
+function _drawZoomHud(ctx, W, H, patchSize) {
+  const txt = `${state.zoom.toFixed(1)}×  ·  patch ${patchSize}px  ·  Z=zoom  R=reset`
+  ctx.save()
+  ctx.font = '11px sans-serif'
+  const tw   = ctx.measureText(txt).width
+  const padX = 9, padY = 4
+  const bw   = tw + padX * 2
+  const bh   = 11 + padY * 2
+  const bx   = 8
+  const by   = H - bh - 8
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  ctx.beginPath()
+  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 4)
+  else ctx.rect(bx, by, bw, bh)
+  ctx.fill()
+  ctx.fillStyle   = 'rgba(200,210,230,0.80)'
+  ctx.textAlign    = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(txt, bx + padX, by + bh / 2)
   ctx.restore()
 }
 
@@ -895,7 +955,8 @@ function filteredPoints() {
 function hitTest(cx, cy) {
   const t = getTransform()
   if (!t) return -1
-  const hitRadius  = Math.max(7, Math.min(16, ((state.record?.patch_size ?? PATCH_SIZE) / 2) * t.scale * 0.6))
+  // Use the true patch half-width; guarantee a minimum 12 px touch target
+  const hitRadius  = Math.max(12, getPointScreenHalf(t))
   const visibleIds = new Set(filteredPoints().map(p => p.id))
   let bestIdx = -1, bestDist = hitRadius * hitRadius
 
@@ -978,8 +1039,27 @@ $overlayCanvas.addEventListener('mouseleave', () => {
 
 function selectPoint(idx) {
   state.selectedIdx = idx
+  state._zoomLocked = false  // reset zoom-lock when selection changes
   drawOverlay()
   renderDetail()
+}
+
+// Zoom and center the viewport on point idx so its patch fills ~35 % of the short viewport edge.
+function zoomToPoint(idx) {
+  const point = state.record?.points[idx]
+  if (!point || !state.loadedImg) return
+  const cw = $imageCanvas.width, ch = $imageCanvas.height
+  const iw = state.record.original_image_width, ih = state.record.original_image_height
+  const patchSize = state.record.patch_size ?? PATCH_SIZE
+  const baseScale = Math.min(cw / iw, ch / ih)
+  // Target: patch fills ~35 % of the viewport's shorter dimension
+  const targetScreenSize = Math.min(cw, ch) * 0.35
+  state.zoom = Math.min(15, Math.max(0.5, (targetScreenSize / patchSize) / baseScale))
+  const newScale = baseScale * state.zoom
+  // Center selected point in viewport
+  state.panX = cw / 2 - point.column * newScale - (cw - iw * newScale) / 2
+  state.panY = ch / 2 - point.row    * newScale - (ch - ih * newScale) / 2
+  drawImage(); drawOverlay()
 }
 
 function scrollToPointIfNeeded(idx) {
@@ -1415,6 +1495,17 @@ document.addEventListener('keydown', e => {
       break
     case 'r': case 'R':
       resetView()
+      break
+    case 'z': case 'Z':
+      if (state.selectedIdx >= 0) {
+        if (state._zoomLocked) {
+          state._zoomLocked = false
+          resetView()
+        } else {
+          state._zoomLocked = true
+          zoomToPoint(state.selectedIdx)
+        }
+      }
       break
     case 'ArrowRight': case 'ArrowDown': {
       e.preventDefault()
