@@ -58,7 +58,7 @@ const T3_CATEGORY = {
 
 const CAT_COLOR = {
   coral: '#f97316', cca: '#a855f7', turf: '#a3e635', macro: '#22c55e',
-  soft:  '#ec4899', sed: '#d97706', other: '#60a5fa',
+  soft:  '#ec4899', sed: '#f3f707', other: '#60a5fa',
 }
 
 // T1 (8 broad functional groups) map to the same color categories as T3
