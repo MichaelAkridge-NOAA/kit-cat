@@ -90,6 +90,11 @@ const $patchPreview       = document.getElementById('patch-preview')
 const $patchPreviewCanvas = document.getElementById('patch-preview-canvas')
 const $patchPreviewLabel  = document.getElementById('patch-preview-label')
 
+const $splashOverlay    = document.getElementById('splash-overlay')
+const $splashDismissChk = document.getElementById('splash-dismiss-chk')
+const $btnGetStarted    = document.getElementById('btn-get-started')
+const $btnHelp          = document.getElementById('btn-help')
+
 const imgCtx     = $imageCanvas.getContext('2d')
 const overlayCtx = $overlayCanvas.getContext('2d')
 
@@ -1222,9 +1227,44 @@ const resizeObserver = new ResizeObserver(() => {
 })
 resizeObserver.observe($container)
 
+// ─── Splash screen ────────────────────────────────────────────────────────────
+
+const SPLASH_KEY = 'kitcat.splashDismissed'
+
+function showSplash() {
+  $splashDismissChk.checked = false
+  $splashOverlay.classList.add('visible')
+  $btnGetStarted.focus()
+}
+
+function hideSplash() {
+  if ($splashDismissChk.checked) {
+    localStorage.setItem(SPLASH_KEY, '1')
+  }
+  $splashOverlay.classList.remove('visible')
+}
+
+$btnGetStarted.addEventListener('click', hideSplash)
+
+$btnHelp.addEventListener('click', () => {
+  localStorage.removeItem(SPLASH_KEY)
+  showSplash()
+})
+
+// Close on backdrop click (clicking outside the card)
+$splashOverlay.addEventListener('click', (e) => {
+  if (e.target === $splashOverlay) hideSplash()
+})
+
+// Close on Escape key — guard ensures this only fires while the splash is open
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $splashOverlay.classList.contains('visible')) hideSplash()
+})
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  if (!localStorage.getItem(SPLASH_KEY)) showSplash()
   checkHealth()
   try {
     const data = await api.labels()
