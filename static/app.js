@@ -85,6 +85,8 @@ const $labelFilterBtn      = document.getElementById('label-filter-btn')
 const $labelFilterDropdown = document.getElementById('label-filter-dropdown')
 const $labelFilterSearch   = document.getElementById('label-filter-search')
 const $labelFilterList     = document.getElementById('label-filter-list')
+const $splashScreen        = document.getElementById('splash-screen')
+const $splashDismiss       = document.getElementById('splash-dismiss')
 
 const $patchPreview       = document.getElementById('patch-preview')
 const $patchPreviewCanvas = document.getElementById('patch-preview-canvas')
@@ -92,6 +94,22 @@ const $patchPreviewLabel  = document.getElementById('patch-preview-label')
 
 const imgCtx     = $imageCanvas.getContext('2d')
 const overlayCtx = $overlayCanvas.getContext('2d')
+
+function splashVisible() {
+  return !!$splashScreen && !$splashScreen.classList.contains('hidden')
+}
+
+function dismissSplash() {
+  if (!splashVisible()) return
+  $splashScreen.classList.add('hidden')
+  $splashDismiss?.setAttribute('aria-hidden', 'true')
+}
+
+function setupSplash() {
+  if (!$splashScreen || !$splashDismiss) return
+  $splashDismiss.addEventListener('click', dismissSplash)
+  $splashDismiss.focus()
+}
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -899,6 +917,14 @@ function updateStatusText() {
 // ─── Keyboard shortcuts ───────────────────────────────────────────────────────
 
 document.addEventListener('keydown', e => {
+  if (splashVisible()) {
+    if (e.key === 'Escape' || e.key === 'Enter') {
+      e.preventDefault()
+      dismissSplash()
+    }
+    return
+  }
+
   const tag = e.target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
   const idx = state.selectedIdx
@@ -1225,6 +1251,7 @@ resizeObserver.observe($container)
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  setupSplash()
   checkHealth()
   try {
     const data = await api.labels()
