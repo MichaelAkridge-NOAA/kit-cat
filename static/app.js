@@ -85,7 +85,6 @@ const $labelFilterBtn      = document.getElementById('label-filter-btn')
 const $labelFilterDropdown = document.getElementById('label-filter-dropdown')
 const $labelFilterSearch   = document.getElementById('label-filter-search')
 const $labelFilterList     = document.getElementById('label-filter-list')
-
 const $patchPreview       = document.getElementById('patch-preview')
 const $patchPreviewCanvas = document.getElementById('patch-preview-canvas')
 const $patchPreviewLabel  = document.getElementById('patch-preview-label')
