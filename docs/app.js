@@ -328,6 +328,10 @@ const $labelFilterList     = document.getElementById('label-filter-list')
 const $patchPreview       = document.getElementById('patch-preview')
 const $patchPreviewCanvas = document.getElementById('patch-preview-canvas')
 const $patchPreviewLabel  = document.getElementById('patch-preview-label')
+const $splashOverlay      = document.getElementById('splash-overlay')
+const $splashDismissChk   = document.getElementById('splash-dismiss-chk')
+const $btnGetStarted      = document.getElementById('btn-get-started')
+const $btnHelp            = document.getElementById('btn-help')
 
 const imgCtx     = $imageCanvas.getContext('2d')
 const overlayCtx = $overlayCanvas.getContext('2d')
@@ -1874,9 +1878,45 @@ document.getElementById('btn-demo')?.addEventListener('click', e => {
 
 new ResizeObserver(() => { if (state.loadedImg) resizeAndDraw() }).observe($container)
 
+// ─── Splash screen ────────────────────────────────────────────────────────────
+
+const SPLASH_KEY = 'kitcat.splashDismissed'
+
+function showSplash() {
+  if (!$splashOverlay) return
+  if ($splashDismissChk) $splashDismissChk.checked = false
+  $splashOverlay.classList.add('visible')
+  $btnGetStarted?.focus()
+}
+
+function hideSplash() {
+  if (!$splashOverlay) return
+  if ($splashDismissChk?.checked) {
+    localStorage.setItem(SPLASH_KEY, '1')
+  }
+  $splashOverlay.classList.remove('visible')
+}
+
+$btnGetStarted?.addEventListener('click', hideSplash)
+
+$btnHelp?.addEventListener('click', () => {
+  localStorage.removeItem(SPLASH_KEY)
+  showSplash()
+})
+
+$splashOverlay?.addEventListener('click', (e) => {
+  if (e.target === $splashOverlay) hideSplash()
+})
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $splashOverlay?.classList.contains('visible')) hideSplash()
+})
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  if (!localStorage.getItem(SPLASH_KEY)) showSplash()
+
   // Verify ONNX Runtime loaded from CDN
   if (typeof ort === 'undefined') {
     setModelStatus('error', 'ONNX Runtime failed to load — check internet')

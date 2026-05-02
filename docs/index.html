@@ -8,6 +8,57 @@
 </head>
 <body>
 
+  <!-- Welcome splash overlay -->
+  <div id="splash-overlay" role="dialog" aria-modal="true" aria-labelledby="splash-title">
+    <div class="splash-card">
+      <div class="splash-logo">
+        <span class="splash-logo-icon">🪸</span>
+        <div>
+          <div class="splash-title" id="splash-title">KIT-CAT</div>
+          <div class="splash-tagline">Keep it Tiny Coral Annotation Tool</div>
+        </div>
+      </div>
+
+      <p class="splash-desc">
+        A lightweight, AI-powered tool for annotating benthic photos using NOAA's
+        YOLO classification models. Upload reef images and get top-5 predictions at
+        every grid point — then confirm, correct, and export to CSV.
+      </p>
+
+      <ol class="splash-steps">
+        <li class="splash-step">
+          <span class="splash-step-num">1</span>
+          <div>
+            <strong>Upload</strong>
+            <span>Drop one or more reef photos into the sidebar.</span>
+          </div>
+        </li>
+        <li class="splash-step">
+          <span class="splash-step-num">2</span>
+          <div>
+            <strong>AI Classifies</strong>
+            <span>The model scores every grid point with top-5 benthic predictions.</span>
+          </div>
+        </li>
+        <li class="splash-step">
+          <span class="splash-step-num">3</span>
+          <div>
+            <strong>Annotate &amp; Export</strong>
+            <span>Confirm, override, or batch-confirm predictions, then download CSV.</span>
+          </div>
+        </li>
+      </ol>
+
+      <div class="splash-footer">
+        <label class="splash-dismiss-label">
+          <input type="checkbox" id="splash-dismiss-chk">
+          Don't show this again
+        </label>
+        <button id="btn-get-started" class="btn-get-started">Get Started →</button>
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="header-left">
       <h1>KIT-CAT <span class="header-subtitle">Tiny Coral Annotation Tool</span></h1>
@@ -16,6 +67,7 @@
       <span id="progress-text"></span>
     </div>
     <div class="header-right">
+      <button id="btn-help" class="btn-help" title="Show welcome / help screen" aria-label="Help">?</button>
       <div id="classify-loading" aria-live="polite">
         <span class="classify-spinner"></span>
         <span id="classify-loading-text">Classifying…</span>
