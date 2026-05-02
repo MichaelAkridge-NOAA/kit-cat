@@ -1,13 +1,13 @@
 # KIT-CAT | Keep it Tiny - Coral Annotation Tool
 
 > A Tiny Tool for Rapid Point/Patch Benthic Annotation
- 
-Self-contained, browser-based, AI powered annotation tool for classifying benthic habitat in reef photos. 
+
+Self-contained, browser-based, AI powered annotation tool for classifying benthic habitat in reef photos.
 1. Upload images
 2. An AI classifier automatically scores a configurable point grid
 3. Then confirm, override, or relabel predictions. Export to CSV when complete
 ## Link: https://michaelakridge-noaa.github.io/kit-cat/
-## AI Benthic Cover Classification 
+## AI Benthic Cover Classification
 ![KIT-CAT screenshot](demo.gif)
 ### Screenshot
 ![KIT-CAT screenshot](docs/screenshot-app.png)
@@ -36,7 +36,7 @@ Use the toolbar to filter what points are shown on the map:
 - **Sort:** navigate points by Position, Label, or Confidence
 
 ### 4. Export
-Click **CSV** to download annotations for the current image, or **All CSV** for every image in the session. 
+Click **CSV** to download annotations for the current image, or **All CSV** for every image in the session.
 - Exports include all annotation details plus `model_used`, `grid_rows`, `grid_cols`, and `is_custom_label`.
 
 ---

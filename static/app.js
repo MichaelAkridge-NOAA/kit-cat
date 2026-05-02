@@ -100,6 +100,7 @@ const overlayCtx = $overlayCanvas.getContext('2d')
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 const api = {
+  health:      ()          => fetch('/api/health').then(r => r.json()),
   list:        ()          => fetch('/api/images').then(r => r.json()),
   get:         (id)        => fetch(`/api/images/${id}`).then(r => r.json()),
   del:         (id)        => fetch(`/api/images/${id}`, { method: 'DELETE' }),
