@@ -85,36 +85,21 @@ const $labelFilterBtn      = document.getElementById('label-filter-btn')
 const $labelFilterDropdown = document.getElementById('label-filter-dropdown')
 const $labelFilterSearch   = document.getElementById('label-filter-search')
 const $labelFilterList     = document.getElementById('label-filter-list')
-const $splashScreen        = document.getElementById('splash-screen')
-const $splashDismiss       = document.getElementById('splash-dismiss')
-
 const $patchPreview       = document.getElementById('patch-preview')
 const $patchPreviewCanvas = document.getElementById('patch-preview-canvas')
 const $patchPreviewLabel  = document.getElementById('patch-preview-label')
 
+const $splashOverlay    = document.getElementById('splash-overlay')
+const $splashDismissChk = document.getElementById('splash-dismiss-chk')
+const $btnGetStarted    = document.getElementById('btn-get-started')
+const $btnHelp          = document.getElementById('btn-help')
+
 const imgCtx     = $imageCanvas.getContext('2d')
 const overlayCtx = $overlayCanvas.getContext('2d')
-
-function splashVisible() {
-  return !!$splashScreen && !$splashScreen.classList.contains('hidden')
-}
-
-function dismissSplash() {
-  if (!splashVisible()) return
-  $splashScreen.classList.add('hidden')
-  $splashDismiss?.setAttribute('aria-hidden', 'true')
-}
-
-function setupSplash() {
-  if (!$splashScreen || !$splashDismiss) return
-  $splashDismiss.addEventListener('click', dismissSplash)
-  $splashDismiss.focus()
-}
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 const api = {
-  health:      ()          => fetch('/api/health').then(r => r.json()),
   list:        ()          => fetch('/api/images').then(r => r.json()),
   get:         (id)        => fetch(`/api/images/${id}`).then(r => r.json()),
   del:         (id)        => fetch(`/api/images/${id}`, { method: 'DELETE' }),
@@ -917,14 +902,6 @@ function updateStatusText() {
 // ─── Keyboard shortcuts ───────────────────────────────────────────────────────
 
 document.addEventListener('keydown', e => {
-  if (splashVisible()) {
-    if (e.key === 'Escape' || e.key === 'Enter') {
-      e.preventDefault()
-      dismissSplash()
-    }
-    return
-  }
-
   const tag = e.target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
   const idx = state.selectedIdx
@@ -1248,10 +1225,44 @@ const resizeObserver = new ResizeObserver(() => {
 })
 resizeObserver.observe($container)
 
+// ─── Splash screen ────────────────────────────────────────────────────────────
+
+const SPLASH_KEY = 'kitcat.splashDismissed'
+
+function showSplash() {
+  $splashDismissChk.checked = false
+  $splashOverlay.classList.add('visible')
+  $btnGetStarted.focus()
+}
+
+function hideSplash() {
+  if ($splashDismissChk.checked) {
+    localStorage.setItem(SPLASH_KEY, '1')
+  }
+  $splashOverlay.classList.remove('visible')
+}
+
+$btnGetStarted.addEventListener('click', hideSplash)
+
+$btnHelp.addEventListener('click', () => {
+  localStorage.removeItem(SPLASH_KEY)
+  showSplash()
+})
+
+// Close on backdrop click (clicking outside the card)
+$splashOverlay.addEventListener('click', (e) => {
+  if (e.target === $splashOverlay) hideSplash()
+})
+
+// Close on Escape key — guard ensures this only fires while the splash is open
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $splashOverlay.classList.contains('visible')) hideSplash()
+})
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
-  setupSplash()
+  if (!localStorage.getItem(SPLASH_KEY)) showSplash()
   checkHealth()
   try {
     const data = await api.labels()

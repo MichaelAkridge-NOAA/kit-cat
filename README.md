@@ -1,7 +1,7 @@
 # KIT-CAT | Keep it Tiny - Coral Annotation Tool
 
 > A Tiny Tool for Rapid Point/Patch Benthic Annotation
-
+ 
 Self-contained, browser-based, AI powered annotation tool for classifying benthic habitat in reef photos. 
 1. Upload images
 2. An AI classifier automatically scores a configurable point grid
