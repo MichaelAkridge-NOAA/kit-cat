@@ -28,6 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
+  CORAL:'Healthy Hard Coral', CORAL_BL:'Bleached Hard Coral',
 }
 
 const T3_CATEGORY = {
@@ -54,11 +55,14 @@ const T3_CATEGORY = {
   FINE:'sed', SAND:'sed',
   // Other (5 codes)
   MOBF:'other', SP:'other', TUN:'other',
+  // Coral bleaching model (2 codes)
+  CORAL:'healthy', CORAL_BL:'bleached',
 }
 
 const CAT_COLOR = {
   coral: '#f97316', cca: '#a855f7', turf: '#a3e635', macro: '#22c55e',
   soft:  '#ec4899', sed: '#f3f707', other: '#60a5fa',
+  healthy: '#10b981', bleached: '#e2e8f0',
 }
 
 // T1 (8 broad functional groups) map to the same color categories as T3
@@ -92,10 +96,12 @@ const IMGSZ      = 224   // ONNX model input resolution
 const MODEL_URLS = {
   t3: './models/yolo11m_cls_noaa-pacific-benthic-t3.onnx',
   t1: './models/yolo11m_cls_noaa-pacific-benthic-t1.onnx',
+  bleaching: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
 }
 const LABEL_URLS = {
   t3: './labels_t3.json',
   t1: './labels_t1.json',
+  bleaching: './labels_bleaching.json',
 }
 
 // Stores in-flight / resolved promises — prevents duplicate concurrent loads
@@ -1803,8 +1809,8 @@ const $dropZone  = document.getElementById('drop-zone')
 const $fileInput = document.getElementById('file-input')
 
 $dropZone.addEventListener('click', e => {
-  // Don't open file picker when demo button is clicked
-  if (!e.target.closest('#btn-demo')) $fileInput.click()
+  // Don't open file picker when demo buttons are clicked
+  if (!e.target.closest('#btn-demo') && !e.target.closest('#btn-demo-bleaching')) $fileInput.click()
 })
 $fileInput.addEventListener('change', () => { uploadFiles([...$fileInput.files]); $fileInput.value = '' })
 
@@ -1869,9 +1875,82 @@ async function loadDemo() {
   }
 }
 
+function setNoaaPresetUi() {
+  state.uploadSettings.gridMethod = 'noaa'
+  state.uploadSettings.rows = 2
+  state.uploadSettings.cols = 5
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'))
+  document.querySelector('.preset-btn[data-grid="noaa"]')?.classList.add('active')
+  document.getElementById('custom-grid-row')?.classList.add('hidden')
+  document.getElementById('placement-row')?.classList.add('hidden')
+}
+
+async function loadBleachingDemo() {
+  if (!_ortReady) {
+    alert('ONNX Runtime is not ready yet — please wait a moment and try again.')
+    return
+  }
+  const btn = document.getElementById('btn-demo-bleaching')
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
+  try {
+    const resp = await fetch('assets/demo/FFS-B013_2019_24_small.jpg')
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const blob = await resp.blob()
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = e => res(e.target.result)
+      r.onerror = rej
+      r.readAsDataURL(blob)
+    })
+    const img = await new Promise((res, rej) => {
+      const im = new Image()
+      im.onload = () => res(im)
+      im.onerror = rej
+      im.src = dataUrl
+    })
+
+    const patchSize = 112
+    const rows = 2
+    const cols = 5
+    const points = generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols, patchSize)
+    const record = {
+      id:   crypto.randomUUID(),
+      name: 'FFS-B013_2019_24_small.jpg',
+      image: dataUrl,
+      thumbnail: makeThumbnail(img),
+      original_image_width:  img.naturalWidth,
+      original_image_height: img.naturalHeight,
+      patch_size:  patchSize,
+      model_used:  'bleaching',
+      grid_rows:   rows,
+      grid_cols:   cols,
+      points,
+      num_confirmed: 0,
+    }
+
+    state.uploadSettings.model = 'bleaching'
+    if ($settingModel) $settingModel.value = 'bleaching'
+    setNoaaPresetUi()
+
+    state.images.push(record)
+    $imageList.appendChild(buildImageItem(record))
+    await loadImage(record.id)
+    classifyRecord(record, img).catch(err => console.error('Bleaching demo classification error:', err))
+  } catch (err) {
+    alert(`Could not load bleaching demo image: ${err.message}`)
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧪 Try Bleaching Demo' }
+  }
+}
+
 document.getElementById('btn-demo')?.addEventListener('click', e => {
   e.stopPropagation()  // prevent drop-zone click from opening file picker
   loadDemo()
+})
+
+document.getElementById('btn-demo-bleaching')?.addEventListener('click', e => {
+  e.stopPropagation()  // prevent drop-zone click from opening file picker
+  loadBleachingDemo()
 })
 
 // ─── Resize observer ─────────────────────────────────────────────────────────
@@ -1937,6 +2016,11 @@ async function init() {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
+    const bleachingCodes = await getLabelCodes('bleaching').catch(() => [])
+    bleachingCodes.forEach(code => {
+      if (!state.allLabels.find(l => l.code === code))
+        state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
+    })
   } catch {
     // Models not yet exported — use hardcoded descriptions as fallback
     const t3entries = Object.entries(T3_DESCRIPTIONS).map(([code, name]) => ({ code, name, is_custom: false }))
@@ -1948,7 +2032,7 @@ async function init() {
     return
   }
 
-  // Preload both models in parallel so switching between T3/T1 is instant
+  // Preload default + secondary models so first classification feels responsive
   const defaultKey = state.uploadSettings.model ?? 't3'
   const otherKey   = defaultKey === 't3' ? 't1' : 't3'
   const loadDefault = getSession(defaultKey)

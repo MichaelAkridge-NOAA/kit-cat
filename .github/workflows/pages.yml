@@ -33,7 +33,9 @@ jobs:
           curl -L --fail --retry 3 \
             "https://huggingface.co/NMFS-OSI/yolo11m-cls-noaa-pacific-benthic-cover-t1/resolve/main/yolo11m_cls_noaa-pacific-benthic-t1.onnx" \
             -o docs/models/yolo11m_cls_noaa-pacific-benthic-t1.onnx
-
+          curl -L --fail --retry 3 \
+            "https://huggingface.co/NMFS-OSI/yolo11n-cls-noaa-esd-coral-bleaching/resolve/main/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx" \
+            -o docs/models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
