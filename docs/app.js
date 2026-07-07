@@ -28,7 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
-  CORAL:'Healthy Hard Coral', CORAL_BL:'Bleached Hard Coral',
+  CORAL:'Healthy', CORAL_BL:'Bleached',
 }
 
 const T3_CATEGORY = {
@@ -1890,52 +1890,66 @@ async function loadBleachingDemo() {
     alert('ONNX Runtime is not ready yet — please wait a moment and try again.')
     return
   }
+  const demoFiles = [
+    'FFS-B013_2019_24_small.jpg',
+    'FFS-B013_2019_22_small.jpg',
+    'FFS-B013_2019_27_small.jpg',
+    'FFS-B013_2019_29_small.jpg',
+    'FFS-B013_2019_30_small.jpg',
+  ]
   const btn = document.getElementById('btn-demo-bleaching')
   if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
   try {
-    const resp = await fetch('assets/demo/FFS-B013_2019_24_small.jpg')
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const blob = await resp.blob()
-    const dataUrl = await new Promise((res, rej) => {
-      const r = new FileReader()
-      r.onload = e => res(e.target.result)
-      r.onerror = rej
-      r.readAsDataURL(blob)
-    })
-    const img = await new Promise((res, rej) => {
-      const im = new Image()
-      im.onload = () => res(im)
-      im.onerror = rej
-      im.src = dataUrl
-    })
-
-    const patchSize = 112
-    const rows = 2
-    const cols = 5
-    const points = generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols, patchSize)
-    const record = {
-      id:   crypto.randomUUID(),
-      name: 'FFS-B013_2019_24_small.jpg',
-      image: dataUrl,
-      thumbnail: makeThumbnail(img),
-      original_image_width:  img.naturalWidth,
-      original_image_height: img.naturalHeight,
-      patch_size:  patchSize,
-      model_used:  'bleaching',
-      grid_rows:   rows,
-      grid_cols:   cols,
-      points,
-      num_confirmed: 0,
-    }
-
     state.uploadSettings.model = 'bleaching'
     if ($settingModel) $settingModel.value = 'bleaching'
     setNoaaPresetUi()
 
-    state.images.push(record)
-    $imageList.appendChild(buildImageItem(record))
-    await loadImage(record.id)
-    classifyRecord(record, img).catch(err => console.error('Bleaching demo classification error:', err))
+    const patchSize = 112
+    const rows = 2
+    const cols = 5
+
+    for (let i = 0; i < demoFiles.length; i++) {
+      const fileName = demoFiles[i]
+      if (btn) btn.textContent = `Loading ${i + 1}/${demoFiles.length}…`
+
+      const resp = await fetch(`assets/demo/${fileName}`)
+      if (!resp.ok) throw new Error(`${fileName}: HTTP ${resp.status}`)
+      const blob = await resp.blob()
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader()
+        r.onload = e => res(e.target.result)
+        r.onerror = rej
+        r.readAsDataURL(blob)
+      })
+      const img = await new Promise((res, rej) => {
+        const im = new Image()
+        im.onload = () => res(im)
+        im.onerror = rej
+        im.src = dataUrl
+      })
+
+      const points = generateStratifiedRandom(img.naturalWidth, img.naturalHeight, rows, cols, patchSize)
+      const record = {
+        id:   crypto.randomUUID(),
+        name: fileName,
+        image: dataUrl,
+        thumbnail: makeThumbnail(img),
+        original_image_width:  img.naturalWidth,
+        original_image_height: img.naturalHeight,
+        patch_size:  patchSize,
+        model_used:  'bleaching',
+        grid_rows:   rows,
+        grid_cols:   cols,
+        points,
+        num_confirmed: 0,
+      }
+
+      state.images.push(record)
+      $imageList.appendChild(buildImageItem(record))
+
+      if (i === 0) await loadImage(record.id)
+      await classifyRecord(record, img)
+    }
   } catch (err) {
     alert(`Could not load bleaching demo image: ${err.message}`)
   } finally {
