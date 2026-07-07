@@ -1891,10 +1891,10 @@ async function loadBleachingDemo() {
     return
   }
   const demoFiles = [
-    'FFS-B013_2019_24_small.jpg',
+    'FFS-B013_2019_29_small.jpg',
     'FFS-B013_2019_22_small.jpg',
     'FFS-B013_2019_27_small.jpg',
-    'FFS-B013_2019_29_small.jpg',
+    'FFS-B013_2019_24_small.jpg',
     'FFS-B013_2019_30_small.jpg',
   ]
   const btn = document.getElementById('btn-demo-bleaching')
