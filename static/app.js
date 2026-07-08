@@ -6,7 +6,7 @@ const T3_CATEGORY = {
   POCS:'coral', MOEN:'coral', MOSP:'coral', MOBR:'coral', PESP:'coral', POMA:'coral',
   POBR:'coral', ACBR:'coral', ACTA:'coral', ACEN:'coral', ACDI:'coral', PASP:'coral',
   FUSP:'coral', LEPT:'coral', FASP:'coral', PLSP:'coral', PLER:'coral', LOBS:'coral',
-  GAST:'coral', HCON:'coral', CORAL:'coral',
+  GAST:'coral', HCON:'coral', CORAL:'healthy', CORAL_BL:'bleached',
   CCAH:'cca', CCAR:'cca', CCA:'cca',
   TURFH:'turf', TURFR:'turf', TURF:'turf',
   EMA:'macro', HALI:'macro', DICO:'macro', LOBO:'macro', MA:'macro',
@@ -18,6 +18,7 @@ const T3_CATEGORY = {
 const CAT_COLOR = {
   coral: '#f97316', cca: '#a855f7', turf: '#a3e635', macro: '#22c55e',
   soft:  '#ec4899', sed: '#d97706', other: '#60a5fa',
+  healthy: '#10b981', bleached: '#e2e8f0',
 }
 
 function getPointColor(point) {
@@ -1204,6 +1205,8 @@ async function checkHealth() {
     const parts = []
     if (h.t3_loaded) parts.push('T3')
     if (h.t1_loaded) parts.push('T1')
+    if (h.bleaching_loaded) parts.push('Bleaching')
+    if (h.bleaching_3class_loaded) parts.push('Bleaching 3-class')
     $statusText.textContent = h.models_ready
       ? `Models ready (${parts.join(', ')})`
       : 'Loading models...'
@@ -1211,6 +1214,8 @@ async function checkHealth() {
     if ($settingModel) {
       if (!h.t3_loaded) $settingModel.querySelector('option[value="t3"]')?.setAttribute('disabled', '')
       if (!h.t1_loaded) $settingModel.querySelector('option[value="t1"]')?.setAttribute('disabled', '')
+      if (!h.bleaching_loaded) $settingModel.querySelector('option[value="bleaching"]')?.setAttribute('disabled', '')
+      if (!h.bleaching_3class_loaded) $settingModel.querySelector('option[value="bleaching_3class"]')?.setAttribute('disabled', '')
     }
   } catch {
     $statusDot.className = 'status-dot error'

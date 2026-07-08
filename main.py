@@ -97,6 +97,8 @@ T3_DESCRIPTIONS: Dict[str, str] = {
     "TURS": "Turbinaria sp",
     "UPMA": "Upright macroalga",
     "ZO": "Zoanthid",
+    "CORAL_BL": "Bleached",
+    "UNK": "Unknown/Other",
 }
 
 _BENTHIC_NS = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -116,12 +118,16 @@ def label_info(code: str) -> dict:
 
 model_t3 = None
 model_t1 = None
+model_bleaching = None
+model_bleaching_3class = None
 model_lock = threading.Lock()
 models_ready = False
 
 _HERE = Path(__file__).parent
 T3_PATH = os.environ.get("MODEL_T3", str(_HERE / "models" / "yolo11m_cls_noaa-pacific-benthic-t3.pt"))
 T1_PATH = os.environ.get("MODEL_T1", str(_HERE / "models" / "yolo11m_cls_noaa-pacific-benthic-t.pt"))
+BLEACHING_PATH = os.environ.get("MODEL_BLEACHING", str(_HERE / "models" / "yolov11n-cls-noaa-esd-coral-bleaching-classifier.pt"))
+BLEACHING_3CLASS_PATH = os.environ.get("MODEL_BLEACHING_3CLASS", str(_HERE / "models" / "yolov11m-cls-noaa-esd-coral-bleaching-classifier.pt"))
 
 # ---------------------------------------------------------------------------
 # In-memory store
@@ -210,7 +216,7 @@ def point_stats(points: List[dict]):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model_t3, model_t1, models_ready
+    global model_t3, model_t1, model_bleaching, model_bleaching_3class, models_ready
     try:
         from ultralytics import YOLO
         if Path(T3_PATH).exists():
@@ -221,7 +227,15 @@ async def lifespan(app: FastAPI):
             print(f"Loading T1 model: {T1_PATH}")
             model_t1 = YOLO(T1_PATH)
             print(f"T1 ready — {len(model_t1.names)} classes")
-        models_ready = model_t3 is not None or model_t1 is not None
+        if Path(BLEACHING_PATH).exists():
+            print(f"Loading bleaching model: {BLEACHING_PATH}")
+            model_bleaching = YOLO(BLEACHING_PATH)
+            print(f"Bleaching ready — {len(model_bleaching.names)} classes")
+        if Path(BLEACHING_3CLASS_PATH).exists():
+            print(f"Loading 3-class bleaching model: {BLEACHING_3CLASS_PATH}")
+            model_bleaching_3class = YOLO(BLEACHING_3CLASS_PATH)
+            print(f"Bleaching 3-class ready — {len(model_bleaching_3class.names)} classes")
+        models_ready = any(model is not None for model in (model_t3, model_t1, model_bleaching, model_bleaching_3class))
     except Exception as exc:
         print(f"ERROR loading models: {exc}")
     yield
@@ -238,7 +252,14 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "models_ready": models_ready, "t3_loaded": model_t3 is not None, "t1_loaded": model_t1 is not None}
+    return {
+        "status": "ok",
+        "models_ready": models_ready,
+        "t3_loaded": model_t3 is not None,
+        "t1_loaded": model_t1 is not None,
+        "bleaching_loaded": model_bleaching is not None,
+        "bleaching_3class_loaded": model_bleaching_3class is not None,
+    }
 
 
 @app.get("/api/labels")
@@ -252,6 +273,14 @@ def get_labels():
                 standard.append(label_info(code))
     if model_t3:
         for idx, code in model_t3.names.items():
+            if code not in T3_DESCRIPTIONS and code not in custom_labels:
+                standard.append(label_info(code))
+    if model_bleaching:
+        for idx, code in model_bleaching.names.items():
+            if code not in T3_DESCRIPTIONS and code not in custom_labels:
+                standard.append(label_info(code))
+    if model_bleaching_3class:
+        for idx, code in model_bleaching_3class.names.items():
             if code not in T3_DESCRIPTIONS and code not in custom_labels:
                 standard.append(label_info(code))
     seen = set()
@@ -294,6 +323,10 @@ async def upload_image(
         model = model_t3
     elif model_name == "t1" and model_t1:
         model = model_t1
+    elif model_name == "bleaching" and model_bleaching:
+        model = model_bleaching
+    elif model_name == "bleaching_3class" and model_bleaching_3class:
+        model = model_bleaching_3class
     elif model_t1:
         model = model_t1
         model_name = "t1"

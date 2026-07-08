@@ -28,7 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
-  CORAL:'Healthy', CORAL_BL:'Bleached',
+  CORAL:'Healthy', CORAL_BL:'Bleached', UNK:'Unknown/Other',
 }
 
 const T3_CATEGORY = {
@@ -55,8 +55,8 @@ const T3_CATEGORY = {
   FINE:'sed', SAND:'sed',
   // Other (5 codes)
   MOBF:'other', SP:'other', TUN:'other',
-  // Coral bleaching model (2 codes)
-  CORAL:'healthy', CORAL_BL:'bleached',
+  // Coral bleaching models
+  CORAL:'healthy', CORAL_BL:'bleached', UNK:'other',
 }
 
 const CAT_COLOR = {
@@ -80,10 +80,11 @@ const T1_DESCRIPTIONS = {
 const BLEACHING_DISPLAY_CODES = {
   CORAL: 'Healthy',
   CORAL_BL: 'Bleached',
+  UNK: 'Unknown/Other',
 }
 
 function displayCode(code, modelKey = state.record?.model_used) {
-  if (modelKey === 'bleaching') return BLEACHING_DISPLAY_CODES[code] ?? code
+  if (modelKey === 'bleaching' || modelKey === 'bleaching_3class') return BLEACHING_DISPLAY_CODES[code] ?? code
   return code
 }
 
@@ -107,11 +108,13 @@ const MODEL_URLS = {
   t3: './models/yolo11m_cls_noaa-pacific-benthic-t3.onnx',
   t1: './models/yolo11m_cls_noaa-pacific-benthic-t1.onnx',
   bleaching: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
+  bleaching_3class: './models/yolov11m-cls-noaa-esd-coral-bleaching-classifier.onnx',
 }
 const LABEL_URLS = {
   t3: './labels_t3.json',
   t1: './labels_t1.json',
   bleaching: './labels_bleaching.json',
+  bleaching_3class: './labels_bleaching_3class.json',
 }
 
 // Stores in-flight / resolved promises — prevents duplicate concurrent loads
@@ -2042,6 +2045,11 @@ async function init() {
     })
     const bleachingCodes = await getLabelCodes('bleaching').catch(() => [])
     bleachingCodes.forEach(code => {
+      if (!state.allLabels.find(l => l.code === code))
+        state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
+    })
+    const bleaching3Codes = await getLabelCodes('bleaching_3class').catch(() => [])
+    bleaching3Codes.forEach(code => {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
