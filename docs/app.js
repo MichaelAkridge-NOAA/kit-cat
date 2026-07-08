@@ -28,7 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
-  CORAL:'Healthy Coral', CORAL_BL:'Bleached Coral', UNK:'Unknown / Other',
+  CORAL:'Healthy', CORAL_BL:'Bleached', UNK:'Unknown / Other',
 }
 
 const T3_CATEGORY = {
@@ -76,6 +76,30 @@ const T1_CATEGORY = {
 const T1_DESCRIPTIONS = {
   CCA:'Crustose Coralline Algae', CORAL:'Hard Coral', I:'Sessile Invertebrate',
   MA:'Macroalgae', MF:'Mobile Fauna', SC:'Soft Coral', SED:'Sediment', TURF:'Turf Algae',
+}
+
+const BLEACHING_BINARY_DESCRIPTIONS = {
+  CORAL: 'Healthy (Binary Model)',
+  CORAL_BL: 'Bleached (Binary Model)',
+}
+
+const BLEACHING_THREE_CLASS_DESCRIPTIONS = {
+  UNK: 'Unknown / Other (3-Class Model)',
+  CORAL: 'Healthy (3-Class Model)',
+  CORAL_BL: 'Bleached (3-Class Model)',
+}
+
+function getDisplayLabelForCode(modelKey, code) {
+  if (modelKey === 'bleaching_binary' || modelKey === 'bleaching') {
+    return BLEACHING_BINARY_DESCRIPTIONS[code] ?? code
+  }
+  if (modelKey === 'bleaching_three_class') {
+    return BLEACHING_THREE_CLASS_DESCRIPTIONS[code] ?? code
+  }
+  if (modelKey === 't1') {
+    return T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code
+  }
+  return T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
 }
 
 function getPointColor(point) {
@@ -224,6 +248,9 @@ async function classifyPatch(imgEl, cx, cy, key, patchSize) {
   const feeds  = { [session.inputNames[0]]: tensor }
   const output = await session.run(feeds)
   const probs  = Array.from(output[session.outputNames[0]].data)
+  if (labels.length !== probs.length) {
+    throw new Error(`Label/model mismatch for ${key}: labels=${labels.length}, logits=${probs.length}`)
+  }
   return probs
     .map((v, i) => ({ code: labels[i], score: v }))
     .sort((a, b) => b.score - a.score)
@@ -472,7 +499,7 @@ async function classifyRecord(record, imgEl) {
         id: crypto.randomUUID(),
         benthic_attribute: t.code,
         ba_gr:             t.code,
-        ba_gr_label:       T3_DESCRIPTIONS[t.code] ?? t.code,
+        ba_gr_label:       getDisplayLabelForCode(key, t.code),
         code:              t.code,
         is_confirmed:      false,
         is_machine_created: true,
@@ -1409,7 +1436,7 @@ function renderCoverSummary() {
     const cat      = T3_CATEGORY[code] ?? T1_CATEGORY[code]
     const dotColor = CAT_COLOR[cat] ?? '#60a5fa'
     const isActive = activeCodes.size === 1 && activeCodes.has(code)
-    const name     = T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
+    const name     = getDisplayLabelForCode(state.record?.model_used, code)
     return `<button class="cover-chip${isActive ? ' active' : ''}" data-code="${code}" title="${name} — click to filter">
       <span class="cover-dot" style="background:${dotColor}"></span>
       <span class="cover-code">${code}</span>
