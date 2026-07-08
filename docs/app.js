@@ -28,7 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
-  CORAL:'Healthy', CORAL_BL:'Bleached', UNK:'Unknown / Other',
+  CORAL:'Healthy', CORAL_BL:'Bleached',
 }
 
 const T3_CATEGORY = {
@@ -55,9 +55,8 @@ const T3_CATEGORY = {
   FINE:'sed', SAND:'sed',
   // Other (5 codes)
   MOBF:'other', SP:'other', TUN:'other',
-  // Coral bleaching models
+  // Coral bleaching model (2 codes)
   CORAL:'healthy', CORAL_BL:'bleached',
-  UNK:'other',
 }
 
 const CAT_COLOR = {
@@ -76,30 +75,6 @@ const T1_CATEGORY = {
 const T1_DESCRIPTIONS = {
   CCA:'Crustose Coralline Algae', CORAL:'Hard Coral', I:'Sessile Invertebrate',
   MA:'Macroalgae', MF:'Mobile Fauna', SC:'Soft Coral', SED:'Sediment', TURF:'Turf Algae',
-}
-
-const BLEACHING_BINARY_DESCRIPTIONS = {
-  CORAL: 'Healthy (Binary Model)',
-  CORAL_BL: 'Bleached (Binary Model)',
-}
-
-const BLEACHING_THREE_CLASS_DESCRIPTIONS = {
-  UNK: 'Unknown / Other (3-Class Model)',
-  CORAL: 'Healthy (3-Class Model)',
-  CORAL_BL: 'Bleached (3-Class Model)',
-}
-
-function getDisplayLabelForCode(modelKey, code) {
-  if (modelKey === 'bleaching_binary' || modelKey === 'bleaching') {
-    return BLEACHING_BINARY_DESCRIPTIONS[code] ?? code
-  }
-  if (modelKey === 'bleaching_three_class') {
-    return BLEACHING_THREE_CLASS_DESCRIPTIONS[code] ?? code
-  }
-  if (modelKey === 't1') {
-    return T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code
-  }
-  return T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
 }
 
 function getPointColor(point) {
@@ -121,15 +96,11 @@ const IMGSZ      = 224   // ONNX model input resolution
 const MODEL_URLS = {
   t3: './models/yolo11m_cls_noaa-pacific-benthic-t3.onnx',
   t1: './models/yolo11m_cls_noaa-pacific-benthic-t1.onnx',
-  bleaching_binary: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
-  bleaching_three_class: './models/yolov11m-cls-noaa-esd-coral-bleaching-classifier.onnx',
   bleaching: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
 }
 const LABEL_URLS = {
   t3: './labels_t3.json',
   t1: './labels_t1.json',
-  bleaching_binary: './labels_bleaching.json',
-  bleaching_three_class: './labels_bleaching_three_class.json',
   bleaching: './labels_bleaching.json',
 }
 
@@ -248,9 +219,6 @@ async function classifyPatch(imgEl, cx, cy, key, patchSize) {
   const feeds  = { [session.inputNames[0]]: tensor }
   const output = await session.run(feeds)
   const probs  = Array.from(output[session.outputNames[0]].data)
-  if (labels.length !== probs.length) {
-    throw new Error(`Label/model mismatch for ${key}: labels=${labels.length}, logits=${probs.length}`)
-  }
   return probs
     .map((v, i) => ({ code: labels[i], score: v }))
     .sort((a, b) => b.score - a.score)
@@ -499,7 +467,7 @@ async function classifyRecord(record, imgEl) {
         id: crypto.randomUUID(),
         benthic_attribute: t.code,
         ba_gr:             t.code,
-        ba_gr_label:       getDisplayLabelForCode(key, t.code),
+        ba_gr_label:       T3_DESCRIPTIONS[t.code] ?? t.code,
         code:              t.code,
         is_confirmed:      false,
         is_machine_created: true,
@@ -1436,7 +1404,7 @@ function renderCoverSummary() {
     const cat      = T3_CATEGORY[code] ?? T1_CATEGORY[code]
     const dotColor = CAT_COLOR[cat] ?? '#60a5fa'
     const isActive = activeCodes.size === 1 && activeCodes.has(code)
-    const name     = getDisplayLabelForCode(state.record?.model_used, code)
+    const name     = T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
     return `<button class="cover-chip${isActive ? ' active' : ''}" data-code="${code}" title="${name} — click to filter">
       <span class="cover-dot" style="background:${dotColor}"></span>
       <span class="cover-code">${code}</span>
@@ -1923,34 +1891,29 @@ async function loadBleachingDemo() {
     return
   }
   const demoFiles = [
-    'FFS-B013_2019_22_small.jpg',
-    'FFS-B013_2019_24_small.jpg',
-    'FFS-B013_2019_27_small.jpg',
     'FFS-B013_2019_29_small.jpg',
+    'FFS-B013_2019_22_small.jpg',
+    'FFS-B013_2019_27_small.jpg',
+    'FFS-B013_2019_24_small.jpg',
     'FFS-B013_2019_30_small.jpg',
   ]
   const btn = document.getElementById('btn-demo-bleaching')
   if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
   try {
-    state.uploadSettings.model = 'bleaching_binary'
-    if ($settingModel) $settingModel.value = 'bleaching_binary'
+    state.uploadSettings.model = 'bleaching'
+    if ($settingModel) $settingModel.value = 'bleaching'
     setNoaaPresetUi()
 
     const patchSize = 112
     const rows = 2
     const cols = 5
-    let loadedCount = 0
-    const skippedFiles = []
 
     for (let i = 0; i < demoFiles.length; i++) {
       const fileName = demoFiles[i]
       if (btn) btn.textContent = `Loading ${i + 1}/${demoFiles.length}…`
 
       const resp = await fetch(`assets/demo/${fileName}`)
-      if (!resp.ok) {
-        skippedFiles.push(`${fileName} (HTTP ${resp.status})`)
-        continue
-      }
+      if (!resp.ok) throw new Error(`${fileName}: HTTP ${resp.status}`)
       const blob = await resp.blob()
       const dataUrl = await new Promise((res, rej) => {
         const r = new FileReader()
@@ -1974,7 +1937,7 @@ async function loadBleachingDemo() {
         original_image_width:  img.naturalWidth,
         original_image_height: img.naturalHeight,
         patch_size:  patchSize,
-        model_used:  'bleaching_binary',
+        model_used:  'bleaching',
         grid_rows:   rows,
         grid_cols:   cols,
         points,
@@ -1984,16 +1947,8 @@ async function loadBleachingDemo() {
       state.images.push(record)
       $imageList.appendChild(buildImageItem(record))
 
-      if (loadedCount === 0) await loadImage(record.id)
+      if (i === 0) await loadImage(record.id)
       await classifyRecord(record, img)
-      loadedCount++
-    }
-
-    if (loadedCount === 0) {
-      throw new Error('No bleaching demo images were found in assets/demo.')
-    }
-    if (skippedFiles.length > 0) {
-      alert(`Loaded ${loadedCount} demo image(s). Skipped: ${skippedFiles.join(', ')}`)
     }
   } catch (err) {
     alert(`Could not load bleaching demo image: ${err.message}`)
@@ -2075,13 +2030,8 @@ async function init() {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
-    const bleachingBinaryCodes = await getLabelCodes('bleaching_binary').catch(() => [])
-    bleachingBinaryCodes.forEach(code => {
-      if (!state.allLabels.find(l => l.code === code))
-        state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
-    })
-    const bleachingThreeClassCodes = await getLabelCodes('bleaching_three_class').catch(() => [])
-    bleachingThreeClassCodes.forEach(code => {
+    const bleachingCodes = await getLabelCodes('bleaching').catch(() => [])
+    bleachingCodes.forEach(code => {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
