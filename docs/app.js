@@ -1932,8 +1932,8 @@ async function loadBleachingDemo() {
   const btn = document.getElementById('btn-demo-bleaching')
   if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
   try {
-    state.uploadSettings.model = 'bleaching_three_class'
-    if ($settingModel) $settingModel.value = 'bleaching_three_class'
+    state.uploadSettings.model = 'bleaching_binary'
+    if ($settingModel) $settingModel.value = 'bleaching_binary'
     setNoaaPresetUi()
 
     const patchSize = 112
@@ -1974,7 +1974,7 @@ async function loadBleachingDemo() {
         original_image_width:  img.naturalWidth,
         original_image_height: img.naturalHeight,
         patch_size:  patchSize,
-        model_used:  'bleaching_three_class',
+        model_used:  'bleaching_binary',
         grid_rows:   rows,
         grid_cols:   cols,
         points,
@@ -1998,7 +1998,7 @@ async function loadBleachingDemo() {
   } catch (err) {
     alert(`Could not load bleaching demo image: ${err.message}`)
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🧪 Try 3-Class Bleaching Demo' }
+    if (btn) { btn.disabled = false; btn.textContent = '🧪 Try Bleaching Demo' }
   }
 }
 
