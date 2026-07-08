@@ -1896,8 +1896,8 @@ async function loadBleachingDemo() {
     return
   }
   const demoFiles = [
+    'FFS-B013_2019_22_small.jpg',
     'FFS-B013_2019_24_small.jpg',
-    'FFS-B013_2019_26_small.jpg',
     'FFS-B013_2019_27_small.jpg',
     'FFS-B013_2019_29_small.jpg',
     'FFS-B013_2019_30_small.jpg',
@@ -1912,13 +1912,18 @@ async function loadBleachingDemo() {
     const patchSize = 112
     const rows = 2
     const cols = 5
+    let loadedCount = 0
+    const skippedFiles = []
 
     for (let i = 0; i < demoFiles.length; i++) {
       const fileName = demoFiles[i]
       if (btn) btn.textContent = `Loading ${i + 1}/${demoFiles.length}…`
 
       const resp = await fetch(`assets/demo/${fileName}`)
-      if (!resp.ok) throw new Error(`${fileName}: HTTP ${resp.status}`)
+      if (!resp.ok) {
+        skippedFiles.push(`${fileName} (HTTP ${resp.status})`)
+        continue
+      }
       const blob = await resp.blob()
       const dataUrl = await new Promise((res, rej) => {
         const r = new FileReader()
@@ -1952,8 +1957,16 @@ async function loadBleachingDemo() {
       state.images.push(record)
       $imageList.appendChild(buildImageItem(record))
 
-      if (i === 0) await loadImage(record.id)
+      if (loadedCount === 0) await loadImage(record.id)
       await classifyRecord(record, img)
+      loadedCount++
+    }
+
+    if (loadedCount === 0) {
+      throw new Error('No bleaching demo images were found in assets/demo.')
+    }
+    if (skippedFiles.length > 0) {
+      alert(`Loaded ${loadedCount} demo image(s). Skipped: ${skippedFiles.join(', ')}`)
     }
   } catch (err) {
     alert(`Could not load bleaching demo image: ${err.message}`)
