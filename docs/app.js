@@ -77,6 +77,16 @@ const T1_DESCRIPTIONS = {
   MA:'Macroalgae', MF:'Mobile Fauna', SC:'Soft Coral', SED:'Sediment', TURF:'Turf Algae',
 }
 
+const BLEACHING_DISPLAY_CODES = {
+  CORAL: 'Healthy',
+  CORAL_BL: 'Bleached',
+}
+
+function displayCode(code, modelKey = state.record?.model_used) {
+  if (modelKey === 'bleaching') return BLEACHING_DISPLAY_CODES[code] ?? code
+  return code
+}
+
 function getPointColor(point) {
   const ann = point.annotations?.[0]
   if (!ann) return '#6b7280'
@@ -782,7 +792,7 @@ function _drawOverlayOverview(t, patchSize, visible) {
     }
     if (isSel || isHov) {
       const ann  = point.annotations?.[0]
-      const code = ann?.code ?? '?'
+      const code = displayCode(ann?.code ?? '?')
       const name = isSel ? (ann?.ba_gr_label ?? '') : ''
       _drawTooltipPill(overlayCtx, x, y - half - 5, code, name)
     }
@@ -828,14 +838,14 @@ function _drawOverlayFocus(t, patchSize, visible) {
       overlayCtx.strokeRect(x - half - 4, y - half - 4, (half + 4) * 2, (half + 4) * 2)
       selX = x; selY = y; selHalf = half
       const ann = point.annotations?.[0]
-      selCode = ann?.code ?? '?'
+      selCode = displayCode(ann?.code ?? '?')
       selName = ann?.ba_gr_label ?? ''
     } else if (isHov) {
       overlayCtx.strokeStyle = 'rgba(255,255,255,0.45)'
       overlayCtx.lineWidth   = 1.5
       overlayCtx.strokeRect(x - half - 3, y - half - 3, (half + 3) * 2, (half + 3) * 2)
       const ann  = point.annotations?.[0]
-      _drawTooltipPill(overlayCtx, x, y - half - 5, ann?.code ?? '?', '')
+      _drawTooltipPill(overlayCtx, x, y - half - 5, displayCode(ann?.code ?? '?'), '')
     }
   })
   if (selX !== null) {
@@ -938,7 +948,7 @@ function _drawPatchPreview(point) {
   ctx.strokeRect(1, 1, sz - 2, sz - 2)
 
   const ann   = point.annotations?.[0]
-  const code  = ann?.code ?? '?'
+  const code  = displayCode(ann?.code ?? '?')
   const score = ann?.score != null ? `  ${(ann.score * 100).toFixed(0)}%` : ''
   $patchPreviewLabel.textContent = code + score
   $patchPreviewLabel.style.color = color
@@ -1140,7 +1150,7 @@ function renderDetail() {
     const scoreStr = a.score != null ? (a.score * 100).toFixed(1) + '%' : (a.is_machine_created === false ? 'manual' : '')
     return `<div class="prediction-row ${i === 0 ? 'is-top' : ''} ${a.is_confirmed ? 'is-confirmed' : ''}" data-ann-idx="${i}">
       <span class="pred-rank">${i + 1}</span>
-      <span class="pred-code">${a.code ?? '?'}</span>
+      <span class="pred-code">${displayCode(a.code ?? '?', state.record?.model_used)}</span>
       <span class="pred-label" title="${a.ba_gr_label}">${a.ba_gr_label}</span>
       <span class="pred-score">${scoreStr}</span>
       <button class="btn-use" data-ann-idx="${i}">Use</button>
@@ -1407,7 +1417,7 @@ function renderCoverSummary() {
     const name     = T3_DESCRIPTIONS[code] ?? T1_DESCRIPTIONS[code] ?? code
     return `<button class="cover-chip${isActive ? ' active' : ''}" data-code="${code}" title="${name} — click to filter">
       <span class="cover-dot" style="background:${dotColor}"></span>
-      <span class="cover-code">${code}</span>
+      <span class="cover-code">${displayCode(code, state.record?.model_used)}</span>
       <span class="cover-pct">${pct}%</span>
     </button>`
   }).join('')
