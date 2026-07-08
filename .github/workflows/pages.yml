@@ -37,7 +37,7 @@ jobs:
             "https://huggingface.co/NMFS-OSI/yolo11n-cls-noaa-esd-coral-bleaching/resolve/main/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx" \
             -o docs/models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx
           curl -L --fail --retry 3 \
-            "https://huggingface.co/NMFS-OSI/yolov11m-cls-noaa-esd-coral-bleaching/resolve/main/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx" \
+            "https://huggingface.co/NMFS-OSI/yolo11n-cls-noaa-esd-coral-bleaching/resolve/main/yolov11m-cls-noaa-esd-coral-bleaching-classifier.onnx" \
             -o docs/models/yolov11m-cls-noaa-esd-coral-bleaching-classifier.onnx            
       - name: Setup Pages
         uses: actions/configure-pages@v4
