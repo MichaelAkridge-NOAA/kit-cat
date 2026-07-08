@@ -28,7 +28,7 @@ const T3_DESCRIPTIONS = {
   SP:'Sponge', STYS:'Stylophora sp', TUN:'Tunicate',
   TURFH:'Turf Algae (High)', TURFR:'Turf Algae (Rubble)', TURS:'Turbinaria sp',
   UPMA:'Upright macroalga', ZO:'Zoanthid',
-  CORAL:'Healthy', CORAL_BL:'Bleached',
+  CORAL:'Healthy Coral', CORAL_BL:'Bleached Coral', UNK:'Unknown / Other',
 }
 
 const T3_CATEGORY = {
@@ -55,8 +55,9 @@ const T3_CATEGORY = {
   FINE:'sed', SAND:'sed',
   // Other (5 codes)
   MOBF:'other', SP:'other', TUN:'other',
-  // Coral bleaching model (2 codes)
+  // Coral bleaching models
   CORAL:'healthy', CORAL_BL:'bleached',
+  UNK:'other',
 }
 
 const CAT_COLOR = {
@@ -96,11 +97,15 @@ const IMGSZ      = 224   // ONNX model input resolution
 const MODEL_URLS = {
   t3: './models/yolo11m_cls_noaa-pacific-benthic-t3.onnx',
   t1: './models/yolo11m_cls_noaa-pacific-benthic-t1.onnx',
+  bleaching_binary: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
+  bleaching_three_class: './models/yolov11m-cls-noaa-esd-coral-bleaching-classifier.onnx',
   bleaching: './models/yolov11n-cls-noaa-esd-coral-bleaching-classifier.onnx',
 }
 const LABEL_URLS = {
   t3: './labels_t3.json',
   t1: './labels_t1.json',
+  bleaching_binary: './labels_bleaching.json',
+  bleaching_three_class: './labels_bleaching_three_class.json',
   bleaching: './labels_bleaching.json',
 }
 
@@ -1891,17 +1896,17 @@ async function loadBleachingDemo() {
     return
   }
   const demoFiles = [
-    'FFS-B013_2019_29_small.jpg',
-    'FFS-B013_2019_22_small.jpg',
-    'FFS-B013_2019_27_small.jpg',
     'FFS-B013_2019_24_small.jpg',
+    'FFS-B013_2019_26_small.jpg',
+    'FFS-B013_2019_27_small.jpg',
+    'FFS-B013_2019_29_small.jpg',
     'FFS-B013_2019_30_small.jpg',
   ]
   const btn = document.getElementById('btn-demo-bleaching')
   if (btn) { btn.disabled = true; btn.textContent = 'Loading…' }
   try {
-    state.uploadSettings.model = 'bleaching'
-    if ($settingModel) $settingModel.value = 'bleaching'
+    state.uploadSettings.model = 'bleaching_three_class'
+    if ($settingModel) $settingModel.value = 'bleaching_three_class'
     setNoaaPresetUi()
 
     const patchSize = 112
@@ -1937,7 +1942,7 @@ async function loadBleachingDemo() {
         original_image_width:  img.naturalWidth,
         original_image_height: img.naturalHeight,
         patch_size:  patchSize,
-        model_used:  'bleaching',
+        model_used:  'bleaching_three_class',
         grid_rows:   rows,
         grid_cols:   cols,
         points,
@@ -1953,7 +1958,7 @@ async function loadBleachingDemo() {
   } catch (err) {
     alert(`Could not load bleaching demo image: ${err.message}`)
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🧪 Try Bleaching Demo' }
+    if (btn) { btn.disabled = false; btn.textContent = '🧪 Try 3-Class Bleaching Demo' }
   }
 }
 
@@ -2030,8 +2035,13 @@ async function init() {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T1_DESCRIPTIONS[code] ?? T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
-    const bleachingCodes = await getLabelCodes('bleaching').catch(() => [])
-    bleachingCodes.forEach(code => {
+    const bleachingBinaryCodes = await getLabelCodes('bleaching_binary').catch(() => [])
+    bleachingBinaryCodes.forEach(code => {
+      if (!state.allLabels.find(l => l.code === code))
+        state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
+    })
+    const bleachingThreeClassCodes = await getLabelCodes('bleaching_three_class').catch(() => [])
+    bleachingThreeClassCodes.forEach(code => {
       if (!state.allLabels.find(l => l.code === code))
         state.allLabels.push({ code, name: T3_DESCRIPTIONS[code] ?? code, is_custom: false })
     })
