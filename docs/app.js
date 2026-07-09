@@ -333,6 +333,7 @@ const $batchConfInput   = document.getElementById('batch-conf-input')
 const $confHistogram    = document.getElementById('conf-histogram')
 const $coverSummary     = document.getElementById('cover-summary')
 const $btnReclassify    = document.getElementById('btn-reclassify')
+const $btnReclassifyAll = document.getElementById('btn-reclassify-all')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -638,6 +639,7 @@ async function loadImage(id) {
   renderDetail()
   updateStatusText()
   if ($btnReclassify) $btnReclassify.disabled = false
+  if ($btnReclassifyAll) $btnReclassifyAll.disabled = false
 }
 
 // ─── Canvas ──────────────────────────────────────────────────────────────────
@@ -1667,16 +1669,7 @@ document.addEventListener('click', e => {
 
 // ─── Reclassify current image ─────────────────────────────────────────────
 
-$btnReclassify?.addEventListener('click', async () => {
-  const record = state.record
-  if (!record || !state.loadedImg) return
-  if (state.classifyingIds.has(record.id)) return
-
-  const confirmedCount = record.points.filter(isConfirmed).length
-  if (confirmedCount > 0) {
-    if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
-  }
-
+function applyReclassifySettings(record) {
   const { gridMethod, pointPlacement, rows, cols, patchSize } = state.uploadSettings
   const model = state.uploadSettings.model ?? 't1'
   const W = record.original_image_width
@@ -1688,26 +1681,99 @@ $btnReclassify?.addEventListener('click', async () => {
       ? generateStratifiedRandom(W, H, rows, cols, patchSize)
       : generateGrid(W, H, rows, cols, patchSize))
 
-  record.points       = newPoints
-  record.model_used   = model
-  record.grid_rows    = gridMethod === 'noaa' ? 2 : rows
-  record.grid_cols    = gridMethod === 'noaa' ? 5 : cols
-  record.patch_size   = patchSize
+  record.points        = newPoints
+  record.model_used    = model
+  record.grid_rows     = gridMethod === 'noaa' ? 2 : rows
+  record.grid_cols     = gridMethod === 'noaa' ? 5 : cols
+  record.patch_size    = patchSize
   record.num_confirmed = 0
+  record._pendingClassify = false
   delete record._classifyDone
+}
 
-  state.selectedIdx = -1
-  state.hoverIdx    = -1
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
 
-  // Rebuild image list item so model/grid tags update
+function refreshImageItem(record) {
   const el = $imageList.querySelector(`[data-id="${record.id}"]`)
   if (el) el.replaceWith(buildImageItem(record))
+}
 
-  drawOverlay(); renderDetail(); renderProgress(); renderCoverSummary(); updateStatusText()
+async function reclassifyRecordWithSettings(record, imgEl) {
+  applyReclassifySettings(record)
+  refreshImageItem(record)
+
+  if (record.id === state.currentId) {
+    state.selectedIdx = -1
+    state.hoverIdx = -1
+    drawOverlay(); renderDetail(); renderProgress(); renderCoverSummary(); updateStatusText()
+  }
+
+  await classifyRecord(record, imgEl)
+}
+
+$btnReclassify?.addEventListener('click', async () => {
+  const record = state.record
+  if (!record || !state.loadedImg) return
+  if (state.classifyingIds.has(record.id)) return
+
+  const confirmedCount = record.points.filter(isConfirmed).length
+  if (confirmedCount > 0) {
+    if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
+  }
   $btnReclassify.disabled = true
-  await classifyRecord(record, state.loadedImg).catch(err =>
+  if ($btnReclassifyAll) $btnReclassifyAll.disabled = true
+  await reclassifyRecordWithSettings(record, state.loadedImg).catch(err =>
     console.error('Reclassify error:', err))
   $btnReclassify.disabled = false
+  if ($btnReclassifyAll) $btnReclassifyAll.disabled = false
+})
+
+$btnReclassifyAll?.addEventListener('click', async () => {
+  const records = [...state.images]
+  if (!records.length) return
+  if (state.classifyingIds.size > 0) {
+    alert('Wait for the current classification to finish before reclassifying all images.')
+    return
+  }
+
+  const confirmedCount = records.reduce((sum, r) => sum + (r.points?.filter(isConfirmed).length ?? 0), 0)
+  const msg = confirmedCount > 0
+    ? `This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} across ${records.length} image${records.length > 1 ? 's' : ''} and reclassify from scratch. Continue?`
+    : `This will reclassify all ${records.length} uploaded image${records.length > 1 ? 's' : ''}. Continue?`
+  if (!confirm(msg)) return
+
+  $btnReclassifyAll.disabled = true
+  if ($btnReclassify) $btnReclassify.disabled = true
+  const originalText = $btnReclassifyAll.textContent
+  const failed = []
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    $btnReclassifyAll.textContent = `↻ Reclassifying all… (${i + 1}/${records.length})`
+    try {
+      const imgEl = (record.id === state.currentId && state.loadedImg)
+        ? state.loadedImg
+        : await loadImageElement(record.image)
+      await reclassifyRecordWithSettings(record, imgEl)
+    } catch (err) {
+      console.error('Reclassify-all error:', err)
+      failed.push(record.name)
+    }
+  }
+
+  if (failed.length) {
+    alert(`Reclassified ${records.length - failed.length}/${records.length} images. Failed: ${failed.join(', ')}`)
+  }
+  $btnReclassifyAll.textContent = originalText
+  $btnReclassifyAll.disabled = false
+  if ($btnReclassify) $btnReclassify.disabled = false
 })
 
 // ─── Auto-advance / Batch confirm ────────────────────────────────────────────

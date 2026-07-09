@@ -76,6 +76,7 @@ const $batchConfInput = document.getElementById('batch-conf-input')
 const $confHistogram  = document.getElementById('conf-histogram')
 const $coverSummary   = document.getElementById('cover-summary')
 const $btnReclassify  = document.getElementById('btn-reclassify')
+const $btnReclassifyAll = document.getElementById('btn-reclassify-all')
 const $btnExport      = document.getElementById('btn-export')
 const $btnExportAll   = document.getElementById('btn-export-all')
 const $settingModel   = document.getElementById('setting-model')
@@ -251,6 +252,7 @@ async function loadImage(id) {
     state.selectedIdx = 0
   }
   if ($btnReclassify) $btnReclassify.disabled = false
+  if ($btnReclassifyAll) $btnReclassifyAll.disabled = false
 }
 
 // ─── Canvas ──────────────────────────────────────────────────────────────────
@@ -1053,6 +1055,27 @@ $batchConfirm.addEventListener('click', async () => {
 
 // ─── Reclassify current image ─────────────────────────────────────────────────
 
+function buildReclassifyPayload() {
+  const { gridMethod, pointPlacement, rows, cols } = state.uploadSettings
+  const model = state.uploadSettings.model ?? 't1'
+  const apiGridMethod = gridMethod === 'noaa' ? 'noaa' : (pointPlacement === 'stratified' ? 'stratified' : 'uniform')
+  return {
+    model_name: model,
+    grid_method: apiGridMethod,
+    grid_rows: gridMethod === 'noaa' ? 2 : rows,
+    grid_cols: gridMethod === 'noaa' ? 5 : cols,
+  }
+}
+
+async function reclassifyImageOnServer(id) {
+  const res = await fetch(`/api/images/${id}/reclassify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildReclassifyPayload()),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+}
+
 $btnReclassify?.addEventListener('click', async () => {
   const record = state.record
   if (!record) return
@@ -1060,32 +1083,64 @@ $btnReclassify?.addEventListener('click', async () => {
   if (confirmedCount > 0) {
     if (!confirm(`This will discard ${confirmedCount} confirmed annotation${confirmedCount > 1 ? 's' : ''} and reclassify from scratch. Continue?`)) return
   }
-  const { gridMethod, pointPlacement, rows, cols } = state.uploadSettings
-  const model = state.uploadSettings.model ?? 't1'
-  const apiGridMethod = gridMethod === 'noaa' ? 'noaa' : (pointPlacement === 'stratified' ? 'stratified' : 'uniform')
   $btnReclassify.disabled = true
+  if ($btnReclassifyAll) $btnReclassifyAll.disabled = true
   $btnReclassify.textContent = '↺ Reclassifying…'
   try {
-    const res = await fetch(`/api/images/${record.id}/reclassify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model_name:  model,
-        grid_method: apiGridMethod,
-        grid_rows:   gridMethod === 'noaa' ? 2 : rows,
-        grid_cols:   gridMethod === 'noaa' ? 5 : cols,
-      }),
-    })
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+    await reclassifyImageOnServer(record.id)
     state.selectedIdx = -1
+    await refreshImageList()
     await loadImage(record.id)
-    const el = $imageList.querySelector(`[data-id="${record.id}"]`)
-    if (el) el.replaceWith(buildImageItem(state.record))
   } catch (err) {
     alert(`Reclassify failed: ${err.message ?? String(err)}`)
   } finally {
     $btnReclassify.disabled = false
+    if ($btnReclassifyAll) $btnReclassifyAll.disabled = false
     $btnReclassify.textContent = '↺ Reclassify current image'
+  }
+})
+
+$btnReclassifyAll?.addEventListener('click', async () => {
+  if (!state.images.length) return
+  if (state.images.length > 1) {
+    if (!confirm(`This will regenerate the grid and reclassify all ${state.images.length} uploaded images. Continue?`)) return
+  } else if (!confirm('This will regenerate the grid and reclassify the only uploaded image. Continue?')) {
+    return
+  }
+
+  const ids = state.images.map(img => img.id)
+  const currentId = state.currentId
+  const failed = []
+
+  $btnReclassifyAll.disabled = true
+  if ($btnReclassify) $btnReclassify.disabled = true
+  $btnReclassifyAll.textContent = '↺ Reclassifying all… (0/' + ids.length + ')'
+
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]
+      $btnReclassifyAll.textContent = `↺ Reclassifying all… (${i + 1}/${ids.length})`
+      try {
+        await reclassifyImageOnServer(id)
+      } catch (err) {
+        failed.push({ id, message: err.message ?? String(err) })
+      }
+    }
+
+    await refreshImageList()
+    if (currentId && state.images.some(img => img.id === currentId)) {
+      await loadImage(currentId)
+    } else if (state.images[0]) {
+      await loadImage(state.images[0].id)
+    }
+
+    if (failed.length) {
+      alert(`Reclassified ${ids.length - failed.length}/${ids.length} images. ${failed.length} failed.`)
+    }
+  } finally {
+    $btnReclassifyAll.disabled = false
+    if ($btnReclassify) $btnReclassify.disabled = false
+    $btnReclassifyAll.textContent = '↻ Reclassify all images'
   }
 })
 
